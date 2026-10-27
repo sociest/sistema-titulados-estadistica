@@ -1,8 +1,10 @@
 services:
-  # ── Proxy Inverso Traefik ──────────────────────────────────────────────
+  # ── Proxy Inverso Traefik (Opcional en local con --profile proxy; NO usar en Dokploy) ─
   traefik:
     image: traefik:v2.11
     container_name: sistitulados_proxy
+    profiles:
+      - proxy
     restart: unless-stopped
     command:
       - "--providers.docker=true"
@@ -68,6 +70,8 @@ services:
       SITIO_URL: ${SITIO_URL:-http://localhost:3000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-1x0000000000000000000000000000000AA}
+      AUTORUN_MIGRATIONS: ${AUTORUN_MIGRATIONS:-true}
+      AUTORUN_SEED: ${AUTORUN_SEED:-true}
       TZ: America/La_Paz
     labels:
       - "traefik.enable=true"

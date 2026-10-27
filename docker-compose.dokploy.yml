@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker Compose optimizado para Dokploy (Modo Compose)
+#
+# Características:
+# 1. Sin proxy Traefik embebido (Dokploy ya administra Traefik en los puertos 80/443).
+# 2. Conexión directa a 'dokploy-network' para enrutamiento de dominio y SSL automático.
+# 3. Base de datos PostgreSQL aislada en red interna (no expuesta a internet).
+# 4. Migraciones automáticas Drizzle gestionadas por el entrypoint al arrancar.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Base de Datos PostgreSQL 16 ───────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: sistitulados_dokploy_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-sistitulados_db}
+      POSTGRES_USER: ${DB_USER:-seguit_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-clave_segura_123}
+    volumes:
+      - postgres_dokploy_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-seguit_app} -d ${DB_NAME:-sistitulados_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    networks:
+      - internal_net
+
+  # ── Aplicación Web Next.js ────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sistitulados_dokploy_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-seguit_app}:${DB_PASSWORD:-clave_segura_123}@db:5432/${DB_NAME:-sistitulados_db}
+      SESSION_SECRET: ${SESSION_SECRET:-secreto_super_seguro_cambiar_en_produccion_64caracteres}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      SITIO_URL: ${SITIO_URL:-http://localhost:3000}
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-1x0000000000000000000000000000000AA}
+      AUTORUN_MIGRATIONS: "true"
+      AUTORUN_SEED: ${AUTORUN_SEED:-true}
+      TZ: America/La_Paz
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    networks:
+      - internal_net
+      - dokploy-network
+
+volumes:
+  postgres_dokploy_data:
+    driver: local
+
+networks:
+  internal_net:
+    driver: bridge
+  dokploy-network:
+    external: true

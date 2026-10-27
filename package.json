@@ -1,6 +1,7 @@
 {
   "name": "sistema-seguimiento-estadistica",
   "version": "1.5.0",
+  "packageManager": "pnpm@10.15.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,6 +15,7 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:prod": "node scripts/migrate.mjs",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx scripts/seed.ts",
     "seed:masivo": "tsx scripts/seed_masivo.ts",

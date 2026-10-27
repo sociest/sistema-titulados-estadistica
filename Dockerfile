@@ -1,6 +1,6 @@
 # 1. Base con pnpm
 FROM node:20-alpine AS base
-RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
+RUN npm install -g pnpm@10.15.0
 WORKDIR /app
 
 # 2. Instalación de dependencias
@@ -29,12 +29,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Instalar pnpm para scripts de mantenimiento/migraciones si se requieren
-RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
-
 # Crear usuario sin privilegios para seguridad (ISO 27001 / Buenas prácticas)
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
+
+# Copiar script de entrada (entrypoint)
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copiar archivos públicos y construidos de Next.js
 COPY --from=builder /app/public ./public
@@ -54,8 +55,5 @@ USER nextjs
 
 EXPOSE 3000
 
-# `pnpm start` dispara un "install" previo automático cuando el lockfile no está
-# en la imagen (pnpm 12 + verify-deps-before-run), y el usuario nextjs no puede
-# escribir pnpm-lock.yaml -> ERR_PNPM_LOCKFILE_WRITE_FILE. Como las dependencias
-# ya vienen resueltas y copiadas desde la etapa builder, arrancamos Next directo.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "node_modules/next/dist/bin/next", "start"]
