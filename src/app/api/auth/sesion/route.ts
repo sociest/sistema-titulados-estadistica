@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   try {
     const sesion = await leerSesionDeRequest(req);
     if (!sesion) {
-      return NextResponse.json({ autenticado: false }, { status: 401 });
+      return NextResponse.json({ autenticado: false }, { status: 200 });
     }
 
     // El token firmado puede seguir siendo criptográficamente válido aunque la sesión

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useAuth } from "@/lib/auth";
@@ -32,6 +32,10 @@ function LoginForm() {
     if (rol === "EGRESADO") return "/portal/egresado";
     return "/titulados";
   };
+
+  const handleTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
+  const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
+  const handleTurnstileError = useCallback(() => setTurnstileToken(null), []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,9 +143,9 @@ function LoginForm() {
             {/* Widget de protección anti-bots (Cloudflare Turnstile) */}
             <div className="flex justify-center">
               <TurnstileWidget
-                onSuccess={(token) => setTurnstileToken(token)}
-                onExpire={() => setTurnstileToken(null)}
-                onError={() => setTurnstileToken(null)}
+                onSuccess={handleTurnstileSuccess}
+                onExpire={handleTurnstileExpire}
+                onError={handleTurnstileError}
               />
             </div>
 
