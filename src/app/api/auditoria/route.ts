@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * Filtros: ?accion=&entidad=&usuarioId=&desde=&hasta=&page=&perPage=
  */
 
-const ACCIONES = ["crear", "editar", "eliminar", "exportar", "importar"];
+const ACCIONES = ["crear", "editar", "eliminar", "exportar", "importar", "consultar_datos", "exportar_datos", "suprimir_datos", "consentimiento"];
 
 export async function GET(req: NextRequest) {
   const denegado = await exigirAdmin(req);

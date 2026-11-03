@@ -1,6 +1,24 @@
 import { z } from "zod";
 
 /**
+ * Booleano tolerante. `z.coerce.boolean()` hace `Boolean(v)`, así que "NO", "false" y "0"
+ * daban `true`; aquí se interpretan por su significado (CSV, Excel y formularios).
+ * Un valor vacío cuenta como "no informado" (undefined).
+ */
+const aBool = (v: unknown) => {
+  if (typeof v === "boolean") return v;
+  if (v === null || v === undefined) return undefined;
+  const s = String(v).trim().toLowerCase();
+  if (s === "") return undefined;
+  if (["si", "sí", "true", "1", "x", "yes"].includes(s)) return true;
+  if (["no", "false", "0"].includes(s)) return false;
+  return v; // valor irreconocible: lo rechaza z.boolean()
+};
+const booleano = z.preprocess(aBool, z.boolean().optional());
+const booleanoFalso = z.preprocess(aBool, z.boolean().default(false));
+
+
+/**
  * Esquemas de validación (zod) compartidos entre el cliente y el servidor.
  *
  * Reglas de negocio:
@@ -112,6 +130,9 @@ export const personaAdminSchema = z
       .optional(),
     redesSociales: textoOpcional(300),
     ciudadRegionTrabajo: textoOpcional(200),
+
+    // Campo de imagen: URL web, ruta local o ruta relativa. Opcional.
+    imagenUrl: z.string().trim().max(500).nullable().optional(),
 
     estadoLaboral: estadoLaboralEnum.default("DESEMPLEADO"),
     sectorTrabajo: sectorEnum.nullable().optional(),
@@ -472,7 +493,7 @@ export const usuarioSchema = z.object({
     .regex(CI_REGEX, "Cédula inválida")
     .nullable()
     .optional(),
-  rol: z.enum(["admin", "usuario", "KARDEX"]).default("admin"),
+  rol: z.enum(["admin", "KARDEX"]).default("admin"),
   estado: z.enum(["activo", "inactivo", "bloqueado"]).default("activo"),
 });
 
@@ -513,9 +534,9 @@ export const noticiaSchema = z
       .string()
       .trim()
       .refine((f) => !Number.isNaN(new Date(f).getTime()), "La fecha es obligatoria"),
-    publicado: z.coerce.boolean().optional(),
+    publicado: booleano.optional(),
     enlace: z.string().trim().max(500).nullable().optional(),
-    destacado: z.coerce.boolean().optional(),
+    destacado: booleano.optional(),
     imagenUrl: z.string().trim().max(500).nullable().optional(),
   })
   .strict();

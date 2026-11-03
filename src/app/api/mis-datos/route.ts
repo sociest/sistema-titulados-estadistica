@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
-import { personas, solicitudTituladoHistorial, carreras } from "@/db/schema";
+import { personas, solicitudTituladoHistorial, carreras, credencialesPersona, sesiones } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { exigirAdminOContacto, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { supresionDatosSchema, primerErrorZod } from "@/lib/validaciones";
 
@@ -30,13 +30,10 @@ export const dynamic = "force-dynamic";
  * titular debe ser trazable, igual que el acceso del administrador.
  */
 export async function GET(req: NextRequest) {
-  const denegado = await exigirAdmin(req);
-  if (denegado) return denegado;
+  const sesion = await leerSesionVigente(req);
+  if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
 
   try {
-    const sesion = await leerSesionVigente(req);
-    if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
-
     const { searchParams } = new URL(req.url);
     const ciSolicitada = (searchParams.get("ci") ?? sesion.ci ?? "").trim().toUpperCase();
     const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
@@ -70,7 +67,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Registro no encontrado" }, { status: 404 });
     }
 
-    // Grados y datos universitaire asociados, que viven en otra tabla.
+    // Grados y datos universitarios asociados, que viven en otra tabla.
     const grados = await db.select().from(carreras).where(eq(carreras.ci, ciSolicitada));
 
     // Histórico administrativo: qué le pasó a su solicitud y quién lo decidió.
@@ -91,8 +88,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(
       {
-        // Se marca la procedencia del archivo para que quien lo reciba sepa de dónde
-        // salió y no lo confunda con un documento oficial de la Universidad.
         metadatos: {
           generadoEn: new Date().toISOString(),
           generadoPor: sesion.rol === "admin" ? "administrador" : "titular",
@@ -117,8 +112,6 @@ export async function GET(req: NextRequest) {
  *
  * Derecho de supresión / cancelación (Ley 1405 art. 13; GDPR art. 17).
  *
- * ⚠ POR QUÉ NO ES UN HARD DELETE
- *
  * La base es el registro institucional de titulados y egresados y alimenta las
  * estadísticas de empleabilidad que sustentan la acreditación. Borrar la fila
  * destruiría indicadores históricos que la Carrera necesita conservar, y ese es el
@@ -130,6 +123,9 @@ export async function GET(req: NextRequest) {
  * nombre, cédula, género, contacto, ubicación, situación laboral y notas. Un agregado
  * estadístico no identifica a nadie.
  *
+ * Además se borran las credenciales (hash de contraseña) y las sesiones activas de la
+ * persona, y se anonimiza la cédula de identidad.
+ *
  * Lo que NO se puede hacer, y por eso esta operación queda registrada en el log
  * encadenado e inmutable: el borrado silencioso. Que conste quién pidió la supresión y
  * cuándo es lo que permite demostrar que el derecho se ejerció.
@@ -138,11 +134,6 @@ export async function GET(req: NextRequest) {
  * que desaparezca de los listados y de las métricas.
  */
 export async function DELETE(req: NextRequest) {
-  const denegado = await exigirAdmin(req);
-  if (denegado) return denegado;
-
-  // `exigirAdmin` solo deja pasar a admin. El titular puede ejercer su propio derecho
-  // de supresión, así que se revalida aquí el caso "es mi ficha".
   const sesion = await leerSesionVigente(req);
   if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
 
@@ -201,10 +192,11 @@ export async function DELETE(req: NextRequest) {
 
     const ahora = new Date();
 
-    // Anonimización + baja lógica, en la misma transacción.
+    // Anonimización completa + baja lógica, en la misma transacción.
     await cliente.query(
       `UPDATE personas SET
          nombres_apellidos        = 'DATO SUPRIMIDO',
+         cedula_identidad         = NULL,
          correo_electronico       = NULL,
          telefono                 = NULL,
          redes_sociales           = NULL,
@@ -235,6 +227,18 @@ export async function DELETE(req: NextRequest) {
          actualizado_en           = $2
        WHERE id = $1`,
       [personaId, ahora, motivo || "Solicitud del titular"]
+    );
+
+    // Borrar credenciales (hash de contraseña) de la persona.
+    await cliente.query(
+      `DELETE FROM credenciales_persona WHERE id_persona = $1`,
+      [personaId]
+    );
+
+    // Revocar todas las sesiones activas de la persona.
+    await cliente.query(
+      `UPDATE sesiones SET revocada_en = $2, motivo_revocacion = $3 WHERE id_persona = $1 AND revocada_en IS NULL`,
+      [personaId, ahora, "Supresión de datos del titular"]
     );
 
     await cliente.query("COMMIT");

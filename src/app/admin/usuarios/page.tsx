@@ -22,7 +22,7 @@ interface Usuario {
   nombre: string;
   correo: string;
   ci: string | null;
-  rol: "admin" | "usuario" | "KARDEX";
+  rol: "admin" | "KARDEX";
   estado: "activo" | "inactivo" | "bloqueado";
   creadoEn: string;
   ultimoAcceso: string | null;
@@ -336,12 +336,10 @@ export default function AdminUsuariosPage() {
                   {msg.texto}
                 </div>
               )}
-              {editando.id !== user?.id && (
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Su propia contraseña (confirmación) *
-                  <input type="password" value={passwordActual} onChange={(e) => setPasswordActual(e.target.value)} className={inp} autoComplete="current-password" />
-                </label>
-              )}
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Su contraseña actual (confirmación) *
+                <input type="password" value={passwordActual} onChange={(e) => setPasswordActual(e.target.value)} className={inp} autoComplete="current-password" />
+              </label>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                 Nueva contraseña *
                 <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={inp} autoComplete="new-password" />

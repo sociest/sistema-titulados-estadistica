@@ -43,6 +43,27 @@
       "when": 1791805594144,
       "tag": "0005_iso_27001_2022_27701_2025",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792671264386,
+      "tag": "0006_credenciales_separadas_titulados",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792671264387,
+      "tag": "0007_cambio_obligatorio_correo",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792671264388,
+      "tag": "0008_add_imagen_url_personas",
+      "breakpoints": true
     }
   ]
 }

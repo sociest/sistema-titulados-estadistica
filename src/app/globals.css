@@ -8,7 +8,7 @@
   --estad-navy: #0f2d52;
   --estad-blue: #0f3a6b;
   --estad-orange: #e86a17;
-  --nav-bg: #0f2d52;
+  --nav-bg: #1e3a8a;
   --nav-border: #0a2040;
   --hero-from: #0f2d52;
   --hero-via: #14477f;
@@ -65,7 +65,7 @@ body {
 
 /* Paletas formales - override variables */
 html[data-palette="dis1"] {
-  --nav-bg: #0f2d52;
+  --nav-bg: #1e3a8a;
   --nav-border: #0a2040;
   --hero-from: #0f2d52;
   --hero-via: #14477f;
@@ -265,3 +265,8 @@ body {
 .solo-impresion {
   display: none;
 }
+
+/* Tema claro suave: evitar blancos puros que quemen la vista */
+.bg-white { background-color: #f8fafc !important; }
+html:not(.dark) body { background-color: #eef2f7; }
+

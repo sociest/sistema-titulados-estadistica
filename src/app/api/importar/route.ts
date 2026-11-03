@@ -54,10 +54,10 @@ const MAPA: Record<string, string> = {
 };
 
 /** Acepta tanto "SI"/"sí"/"1"/"true" como el booleano de Excel. */
-function aBooleano(v: unknown): string {
-  if (typeof v === "boolean") return v ? "SI" : "NO";
+function aBooleano(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
   const s = String(v ?? "").trim().toLowerCase();
-  return s === "si" || s === "sí" || s === "1" || s === "true" || s === "x" ? "SI" : "NO";
+  return s === "si" || s === "sí" || s === "1" || s === "true" || s === "x";
 }
 
 export async function POST(req: NextRequest) {
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       const normalizado: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(crudo)) {
         const destino = MAPA[k.trim().toLowerCase()];
-        if (destino) normalizado[destino] = v;
+        if (destino && !(typeof v === "string" && v.trim() === "")) normalizado[destino] = v;
       }
       if ("trabajaEnEstadistica" in normalizado) {
         normalizado.trabajaEnEstadistica = aBooleano(normalizado.trabajaEnEstadistica);

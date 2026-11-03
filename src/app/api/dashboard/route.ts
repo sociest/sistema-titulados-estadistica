@@ -27,8 +27,6 @@ type Cond = SQL | undefined;
 function construirFiltros(searchParams: URLSearchParams) {
   const sector = searchParams.get("sector");
   const modalidad = searchParams.get("modalidad");
-  const anioMin = searchParams.get("anioMin");
-  const anioMax = searchParams.get("anioMax");
 
   const conds: SQL[] = [];
 
@@ -40,12 +38,19 @@ function construirFiltros(searchParams: URLSearchParams) {
   conds.push(eq(personas.activo, true), eq(personas.estadoRegistro, "VALIDADO"));
   const filtrosUsuario = conds.length;
 
+  const anioMinRaw = searchParams.get("anioMin");
+  const anioMaxRaw = searchParams.get("anioMax");
+  const anioMin = anioMinRaw ? parseInt(anioMinRaw, 10) : null;
+  const anioMax = anioMaxRaw ? parseInt(anioMaxRaw, 10) : null;
+
   const sectorValido = aFiltroEnum(personas.sectorTrabajo, sector);
   if (sectorValido) conds.push(eq(personas.sectorTrabajo, sectorValido));
   if (modalidad && modalidad !== "TODAS")
     conds.push(eq(personas.modalidadTitulacion, aFiltroEnum(personas.modalidadTitulacion, modalidad, "TODAS")!));
-  if (anioMin) conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${parseInt(anioMin, 10)}`);
-  if (anioMax) conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) <= ${parseInt(anioMax, 10)}`);
+  if (anioMin !== null && Number.isFinite(anioMin))
+    conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${anioMin}`);
+  if (anioMax !== null && Number.isFinite(anioMax))
+    conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) <= ${anioMax}`);
 
   const where: Cond = conds.length ? and(...conds) : undefined;
   return { where, hayFiltros: conds.length > filtrosUsuario };

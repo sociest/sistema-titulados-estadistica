@@ -84,6 +84,15 @@ export async function PATCH(req: NextRequest) {
     });
 
     if (!actualizada) return NextResponse.json({ error: "La solicitud ya fue revisada o no existe" }, { status: 409 });
+
+    // Cuando Kardex acepta la solicitud, el egresado pasa a TITULADO.
+    if (actualizada.estado === "ACEPTADO") {
+      await db
+        .update(personas)
+        .set({ tipo: "TITULADO", estadoRegistro: "VALIDADO", fechaValidacion: new Date() })
+        .where(eq(personas.cedulaIdentidad, actualizada.ci));
+    }
+
     await registrarAuditoria({
       accion: "editar",
       entidad: "solicitudtitulado",

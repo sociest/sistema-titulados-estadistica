@@ -78,10 +78,10 @@ export async function sesionEstaVigente(token: string): Promise<boolean> {
       .limit(1);
     return filas.length > 0;
   } catch (e) {
-    // Si no se puede leer la tabla, no se bloquea el acceso: el token firmado ya es
-    // una credencial válida y el usuario se autenticó correctamente.
+    // Si no se puede leer la tabla de sesiones, se niega el acceso: no dejamos pasar
+    // a ciegas cuando la base de datos está caída o inaccesible.
     console.error("[sesiones] no se pudo verificar la vigencia:", e);
-    return true;
+    return false;
   }
 }
 

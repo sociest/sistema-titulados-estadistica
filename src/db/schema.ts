@@ -152,6 +152,9 @@ export const personas = pgTable(
     redesSociales: text("redes_sociales"), // URLs LinkedIn / Facebook
     ciudadRegionTrabajo: text("ciudad_region_trabajo"), // ej. "La Paz, Bolivia", "Santa Cruz", "Exterior"
 
+    // ── Campo de imagen (minijerarquía: URL o ruta local) ─────────────────────
+    imagenUrl: varchar("imagen_url", { length: 500 }),
+
     // ── Campos Dinámicos de Situación Laboral y Métricas ───────────────────────
     estadoLaboral: estadoLaboralEnum("estado_laboral").default("DESEMPLEADO"),
     sectorTrabajo: sectorTrabajoEnum("sector_trabajo"),
@@ -194,6 +197,14 @@ export const personas = pgTable(
     // fecha, hora y medio; guardarlos permite acreditarla.
     consentimientoIp: varchar("consentimiento_ip", { length: 45 }),
 
+    // ── Cambio obligatorio de CI a correo (titulares y egresados) ─────────────────
+    //
+    // Los titulares y egresados entran con CI + contraseña. Se les pide cambiar a
+    // correo + contraseña. Pueden saltarlo hasta 5 veces; en la 6ta es obligatorio.
+    // `cambiosCorreoRestantes` inicia en 5 y se decrementa cada vez que saltan.
+    correoObligatorio: boolean("correo_obligatorio").notNull().default(false),
+    cambiosCorreoRestantes: integer("cambios_correo_restantes").notNull().default(5),
+
     // ── Derecho de supresión (derecho deCancellation / rectificación) ────────────
     //
     // La baja lógica (D3) NO satisface el derecho de supresión: conserva la fila y
@@ -228,6 +239,14 @@ export const personas = pgTable(
     activoIdx: index("idx_personas_activo").on(table.activo),
   })
 );
+
+export const credencialesPersona = pgTable("credenciales_persona", {
+  idPersona: integer("id_persona")
+    .primaryKey()
+    .references(() => personas.id, { onDelete: "cascade" }),
+  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  actualizadoEn: timestamp("actualizado_en").notNull().defaultNow(),
+});
 
 export const carreras = pgTable(
   "carreras",

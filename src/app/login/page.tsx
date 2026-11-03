@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useAuth } from "@/lib/auth";
-import { ShieldCheck, GraduationCap, BookOpen, LogIn, Info } from "lucide-react";
+import { ShieldCheck, GraduationCap, BookOpen, Users, LogIn, Info } from "lucide-react";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import TurnstileWidget from "@/components/TurnstileWidget";
 
@@ -33,10 +33,6 @@ function LoginForm() {
     return "/titulados";
   };
 
-  const handleTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
-  const handleTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
-  const handleTurnstileError = useCallback(() => setTurnstileToken(null), []);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
@@ -49,7 +45,31 @@ function LoginForm() {
       });
       const data = await res.json();
 
-      if (!res.ok) throw new Error(data.error || "No se pudo iniciar sesión");
+      // ── Cambio obligatorio de CI a correo ─────────────────────────────────────
+      if (data.requiereCambioCorreo) {
+        // Login exitoso pero requiere cambiar a correo (sesión ya creada)
+        await refrescar();
+        setLogueando(data.rol);
+        setTimeout(() => {
+          router.push(
+            `/cambiar-correo?ci=${encodeURIComponent(data.ci || "")}&nombre=${encodeURIComponent(data.nombre || "")}&tipo=${encodeURIComponent(data.tipo || "")}&cambios=${data.cambiosCorreoRestantes ?? 5}`
+          );
+        }, 900);
+        return;
+      }
+
+      if (!res.ok) {
+        // Si es cambio obligatorio forzado (403), redirigir a cambiar correo
+        if (data.codigo === "CORREO_OBLIGATORIO") {
+          setTimeout(() => {
+            router.push(
+              `/cambiar-correo?ci=${encodeURIComponent(data.ci || "")}&nombre=${encodeURIComponent(data.nombre || "")}&tipo=${encodeURIComponent(data.tipo || "")}&cambios=0`
+            );
+          }, 900);
+          return;
+        }
+        throw new Error(data.error || "No se pudo iniciar sesión");
+      }
 
       // La cookie httpOnly ya quedó emitida por el servidor; solo pedimos el perfil.
       await refrescar();
@@ -67,23 +87,27 @@ function LoginForm() {
     <>
       <LoadingOverlay
         visible={!!logueando}
-        icon={
-          logueando === "admin" ? (
-            <ShieldCheck className="w-7 h-7" />
-          ) : logueando === "TITULADO" ? (
-            <GraduationCap className="w-7 h-7" />
-          ) : (
-            <BookOpen className="w-7 h-7" />
-          )
-        }
-        title="Iniciando sesión"
-        label={
-          logueando === "admin"
-            ? "Administrador"
+      icon={
+        logueando === "admin" ? (
+          <ShieldCheck className="w-7 h-7" />
+        ) : logueando === "KARDEX" ? (
+          <Users className="w-7 h-7" />
+        ) : logueando === "TITULADO" ? (
+          <GraduationCap className="w-7 h-7" />
+        ) : (
+          <BookOpen className="w-7 h-7" />
+        )
+      }
+      title="Iniciando sesión"
+      label={
+        logueando === "admin"
+          ? "Administrador"
+          : logueando === "KARDEX"
+            ? "Kardex"
             : logueando === "TITULADO"
               ? "Titulado"
               : "Egresado"
-        }
+      }
       />
 
       <div className="max-w-lg mx-auto px-6 py-12">
@@ -130,7 +154,7 @@ function LoginForm() {
                 className="mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
               <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                Si la carrera no le registró una contraseña, déjela vacía.
+                Si es su primer ingreso o no recuerda su contraseña, puede configurarla por correo.
               </p>
             </div>
 
@@ -143,9 +167,9 @@ function LoginForm() {
             {/* Widget de protección anti-bots (Cloudflare Turnstile) */}
             <div className="flex justify-center">
               <TurnstileWidget
-                onSuccess={handleTurnstileSuccess}
-                onExpire={handleTurnstileExpire}
-                onError={handleTurnstileError}
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
               />
             </div>
 
@@ -156,6 +180,15 @@ function LoginForm() {
               <LogIn className="w-4 h-4" /> {loading ? "Verificando..." : "Ingresar"}
             </button>
           </form>
+
+          <p className="mt-4 text-center text-sm">
+            <a
+              href="/recuperar"
+              className="font-semibold text-blue-800 hover:underline dark:text-blue-300"
+            >
+              ¿Primera vez o olvidó su contraseña?
+            </a>
+          </p>
 
           <p className="mt-6 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed border-t border-slate-200 dark:border-slate-800 pt-4">
             Si no puede acceder, comuníquese con la Secretaría de la Carrera de Estadística.

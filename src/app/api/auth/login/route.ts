@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/db";
-import { personas, usuarios } from "@/db/schema";
+import { credencialesPersona, personas, usuarios } from "@/db/schema";
 import { and, eq, or, sql } from "drizzle-orm";
 import { verifyPassword } from "@/lib/password";
 import { crearToken, opcionesCookie } from "@/lib/sesion";
@@ -141,14 +141,24 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
         correoElectronico: personas.correoElectronico,
         activo: personas.activo,
         estadoRegistro: personas.estadoRegistro,
+        passwordHash: credencialesPersona.passwordHash,
+        correoObligatorio: personas.correoObligatorio,
+        cambiosCorreoRestantes: personas.cambiosCorreoRestantes,
       })
       .from(personas)
-      .where(sql`upper(${personas.cedulaIdentidad}) = ${entrada}`)
-      .limit(1);
+      .leftJoin(credencialesPersona, eq(credencialesPersona.idPersona, personas.id))
+      .where(
+        or(
+          sql`upper(${personas.cedulaIdentidad}) = ${entrada}`,
+          sql`lower(trim(${personas.correoElectronico})) = ${entrada.toLowerCase()}`
+        )
+      )
+      .limit(2);
 
+    if (personasRows.length > 1) return await fallo(`Intento de acceso con correo compartido ${entrada}`);
     const persona = personasRows[0];
     const credencialesInvalidas = async () =>
-      await fallo(`Intento de acceso fallido con CI ${entrada}`);
+      await fallo(`Intento de acceso fallido con identificador ${entrada}`);
 
     if (!persona) return await credencialesInvalidas();
 
@@ -157,24 +167,7 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
     // contraseña y no antes, para que la respuesta siga siendo la misma para una cédula
     // inexistente y para una dada de baja, y no sirva para enumerar quién está dado de
     // baja en el sistema.
-    const comoUsuario = await db
-      .select({ passwordHash: usuarios.passwordHash, estado: usuarios.estado })
-      .from(usuarios)
-      .where(sql`upper(${usuarios.ci}) = ${persona.cedulaIdentidad.toUpperCase()}`)
-      .limit(1);
-
-    if (comoUsuario.length) {
-      const u = comoUsuario[0]!;
-      if (u.estado === "bloqueado" || u.estado === "inactivo") {
-        return NextResponse.json(
-          { error: `Su cuenta está ${u.estado}. Contacte a la Carrera de Estadística.` },
-          { status: 403 }
-        );
-      }
-
-      const esPasswordValido = await verifyPassword(password, u.passwordHash);
-      if (!esPasswordValido) return await credencialesInvalidas();
-    } else if (password) {
+    if (!persona.passwordHash || !(await verifyPassword(password, persona.passwordHash))) {
       return await credencialesInvalidas();
     }
 
@@ -223,6 +216,31 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
 
     limpiarIntentos(ip, entrada);
 
+    // ── Cambio obligatorio de CI a correo (titulares y egresados) ────────────────
+    const esTituladoEgresado =
+      persona.tipo === "TITULADO" || persona.tipo === "EGRESADO";
+    const cambiosRestantes = esTituladoEgresado
+      ? persona.cambiosCorreoRestantes
+      : null;
+
+    // Si ya se agotaron los 5 saltos, forzar cambio de correo antes de entrar.
+    if (
+      esTituladoEgresado &&
+      !persona.correoObligatorio &&
+      cambiosRestantes! <= 0
+    ) {
+      return NextResponse.json(
+        {
+          error: "Debe cambiar su credencial de acceso a correo electrónico.",
+          codigo: "CORREO_OBLIGATORIO",
+          ci: persona.cedulaIdentidad,
+          nombre: persona.nombresApellidos,
+          tipo: persona.tipo,
+        },
+        { status: 403 }
+      );
+    }
+
     // ⚠️ FIX: Usar await al crear el token
     const token = await crearToken({
       sub: persona.id,
@@ -263,6 +281,11 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
       correo: persona.correoElectronico,
       id: persona.id,
       tipo: persona.tipo,
+      // Campos para el frontend: contador de cambio obligatorio a correo
+      requiereCambioCorreo:
+        esTituladoEgresado && !persona.correoObligatorio,
+      cambiosCorreoRestantes: cambiosRestantes ?? 0,
+      correoObligatorio: persona.correoObligatorio,
     });
   } catch (e) {
     return errorInterno(e, "auth/login");

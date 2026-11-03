@@ -73,8 +73,6 @@ export async function GET(request: NextRequest) {
     const formato = searchParams.get("formato") || "excel"; // excel, csv
     const sector = searchParams.get("sector");
     const modalidad = searchParams.get("modalidad");
-    const anioMin = searchParams.get("anioMin");
-    const anioMax = searchParams.get("anioMax");
 
     // Construcción de condiciones Drizzle
     const conditions = [];
@@ -91,6 +89,11 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(personas.tipo, "EGRESADO"));
     }
 
+    const anioMinRaw = searchParams.get("anioMin");
+    const anioMaxRaw = searchParams.get("anioMax");
+    const anioMin = anioMinRaw ? parseInt(anioMinRaw, 10) : null;
+    const anioMax = anioMaxRaw ? parseInt(anioMaxRaw, 10) : null;
+
     if (sector && sector !== "TODOS") {
       const sectorValido = aFiltroEnum(personas.sectorTrabajo, sector);
     if (sectorValido) conditions.push(eq(personas.sectorTrabajo, sectorValido));
@@ -101,15 +104,15 @@ export async function GET(request: NextRequest) {
     if (modalidadValida) conditions.push(eq(personas.modalidadTitulacion, modalidadValida));
     }
 
-    if (anioMin) {
+    if (anioMin !== null && Number.isFinite(anioMin)) {
       conditions.push(
-        sql`COALESCE(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${parseInt(anioMin)}`
+        sql`COALESCE(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${anioMin}`
       );
     }
 
-    if (anioMax) {
+    if (anioMax !== null && Number.isFinite(anioMax)) {
       conditions.push(
-        sql`COALESCE(${personas.anioTitulacion}, ${personas.anioEgreso}) <= ${parseInt(anioMax)}`
+        sql`COALESCE(${personas.anioTitulacion}, ${personas.anioEgreso}) <= ${anioMax}`
       );
     }
 
@@ -182,6 +185,8 @@ export async function GET(request: NextRequest) {
         Teléfono: r.telefono || "—",
         "Redes Sociales": r.redesSociales || "—",
         Observaciones: r.observaciones || "—",
+        "Carrera": "Estadística",
+        "Fecha de Generación": fechaGeneracion,
       }))
     );
 

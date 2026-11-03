@@ -37,19 +37,23 @@ export const dynamic = "force-dynamic";
  * Parámetros:
  *   ?formato=json  (por defecto)  → volcado legible y reutilizable por cualquier
  *                                    herramienta sin depender de PostgreSQL
- *   ?formato=sql                  → sentencias INSERTgenerated desde los mismos datos
+ *   ?formato=sql                  → sentencias INSERT generadas desde los mismos datos
  */
 
+/**
+ * Nombre real de cada tabla en PostgreSQL (coincide con el esquema Drizzle).
+ * Se usa tanto para la clave JSON como para `INSERT INTO <nombre>`.
+ */
 const TABLAS: Array<{ nombre: string; tabla: unknown }> = [
   { nombre: "personas", tabla: personas },
   { nombre: "carreras", tabla: carreras },
   { nombre: "usuarios", tabla: usuarios },
   { nombre: "sesiones", tabla: sesiones },
   { nombre: "verificaciones", tabla: verificaciones },
-  { nombre: "noticias", tabla: noticias },
-  { nombre: "solicitud_titulado", tabla: solicitudTitulado },
-  { nombre: "solicitud_titulado_historial", tabla: solicitudTituladoHistorial },
-  { nombre: "solicitud_titulado_documento", tabla: solicitudTituladoDocumento },
+  { nombre: "noticias_cursos", tabla: noticias },
+  { nombre: "solicitudtitulado", tabla: solicitudTitulado },
+  { nombre: "solicitudtitulado_historial", tabla: solicitudTituladoHistorial },
+  { nombre: "solicitudtitulado_documentos", tabla: solicitudTituladoDocumento },
   { nombre: "audit_log", tabla: auditLog },
 ];
 
@@ -77,8 +81,6 @@ export async function GET(req: NextRequest) {
     }
 
     // Recuento previo: el respaldo debe poder afirmar cuántos registros respalda.
-    // Se cuenta con COUNT(*) en vez de traer las filas: cargar la tabla entera solo
-    // para descartar el resultado seria el doble de memoria y de trafico.
     const conteos: Record<string, number> = {};
     for (const { nombre, tabla } of TABLAS) {
       const fila = (await db
@@ -109,27 +111,25 @@ export async function GET(req: NextRequest) {
           const enc = new TextEncoder();
           const enviar = (s: string) => control.enqueue(enc.encode(s));
 
-          enviar(
-            JSON.stringify(
-              {
-                respaldo: "Sistema de Seguimiento a Titulados y Egresados",
-                generadoEn: new Date().toISOString(),
-                generadoPor: origen,
-                nota: "Volcado en memoria generado desde la aplicación; no requiere pg_dump.",
-                conteos,
-              },
-              null,
-              2
-            ) + "\n{\n"
-          );
+          // Un solo objeto JSON válido: { respaldo, generadoEn, generadoPor, nota, conteos, datos: { tabla: filas, ... } }
+          const datos: Record<string, unknown> = {};
           for (const { nombre, tabla } of TABLAS) {
-            const filas = (await db.select().from(tabla as never)) as Record<
-              string,
-              unknown
-            >[];
-            enviar(`  ${JSON.stringify(nombre)}: ` + JSON.stringify(filas, null, 2) + "\n");
+            const filas = (await db.select().from(tabla as never)) as Record<string, unknown>[];
+            datos[nombre] = filas;
           }
-          enviar("}\n");
+
+          const payload = {
+            respaldo: "Sistema de Seguimiento a Titulados y Egresados",
+            generadoEn: new Date().toISOString(),
+            generadoPor: origen,
+            nota: "Volcado en memoria generado desde la aplicación; no requiere pg_dump.",
+            conteos,
+            datos,
+          };
+
+          enviar(JSON.stringify(payload, null, 2));
+          enviar("\n");
+
           await codigoAuditoria;
           control.close();
         },
@@ -156,10 +156,7 @@ export async function GET(req: NextRequest) {
         enviar("-- No requiere pg_dump: se genera desde el ORM en memoria.\n");
         enviar("BEGIN;\n");
         for (const { nombre, tabla } of TABLAS) {
-          const filas = (await db.select().from(tabla as never)) as Record<
-            string,
-            unknown
-          >[];
+          const filas = (await db.select().from(tabla as never)) as Record<string, unknown>[];
           for (const fila of filas) {
             const columnas = Object.keys(fila);
             enviar(

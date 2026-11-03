@@ -73,6 +73,8 @@ export default function TituladoPortal() {
     const fd = new FormData(e.currentTarget);
     const payload: any = {};
     ["correoElectronico","telefono","redesSociales","ciudadRegionTrabajo","estadoLaboral","sectorTrabajo","ocupacionCargo","observaciones","tiempoInsercionLaboralMeses"].forEach(k=> payload[k]=fd.get(k));
+    // El sector "--" (vacío) no debe bloquear el guardado: se envía como null.
+    if (payload.sectorTrabajo === "") payload.sectorTrabajo = null;
     payload.consentimientoPrivacidad = true;
     payload.versionAvisoPrivacidad = VERSION_AVISO;
     payload.trabajaEnEstadistica = fd.get("trabajaEnEstadistica")==="SI";

@@ -43,24 +43,18 @@ export default function TurnstileWidget({
 }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
-
-  // Evitar ciclo infinito de re-renderizados: almacenar callbacks en refs
-  // para que el widget no se desmonte ni se vuelva a renderizar cuando
-  // el componente padre actualiza su estado (ej: setTurnstileToken).
   const onSuccessRef = useRef(onSuccess);
   const onErrorRef = useRef(onError);
   const onExpireRef = useRef(onExpire);
 
-  onSuccessRef.current = onSuccess;
-  onErrorRef.current = onError;
-  onExpireRef.current = onExpire;
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+    onExpireRef.current = onExpire;
+  }, [onSuccess, onError, onExpire]);
 
-  // Si no se especifica siteKey, se utiliza la variable pública de entorno
-  // o el dummy sitekey oficial de Cloudflare para testing ("Always passes").
   const resolvedSiteKey =
-    siteKey ||
-    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
-    "1x00000000000000000000AA";
+    siteKey || process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
 
   useEffect(() => {
     let scriptEl: HTMLScriptElement | null = null;
@@ -78,7 +72,7 @@ export default function TurnstileWidget({
           sitekey: resolvedSiteKey,
           theme,
           callback: (token: string) => {
-            onSuccessRef.current?.(token);
+            onSuccessRef.current(token);
           },
           "error-callback": (err) => {
             onErrorRef.current?.(err);

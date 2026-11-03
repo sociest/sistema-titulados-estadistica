@@ -84,18 +84,20 @@ export async function GET(req: NextRequest) {
     if (sp.get("incluirBajas") !== "true") {
       conds.push(eq(personas.activo, true), eq(personas.estadoRegistro, "VALIDADO"));
     }
+    const anioMinRaw = sp.get("anioMin");
+    const anioMaxRaw = sp.get("anioMax");
+    const anioMin = anioMinRaw ? parseInt(anioMinRaw, 10) : null;
+    const anioMax = anioMaxRaw ? parseInt(anioMaxRaw, 10) : null;
     const sector = sp.get("sector");
     const sectorValido = aFiltroEnum(personas.sectorTrabajo, sector);
     if (sectorValido) conds.push(eq(personas.sectorTrabajo, sectorValido));
     const modalidad = sp.get("modalidad");
     const modalidadValida = aFiltroEnum(personas.modalidadTitulacion, modalidad, "TODAS");
     if (modalidadValida) conds.push(eq(personas.modalidadTitulacion, modalidadValida));
-    const anioMin = sp.get("anioMin");
-    if (anioMin)
-      conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${parseInt(anioMin, 10)}`);
-    const anioMax = sp.get("anioMax");
-    if (anioMax)
-      conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) <= ${parseInt(anioMax, 10)}`);
+    if (anioMin !== null && Number.isFinite(anioMin))
+      conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${anioMin}`);
+    if (anioMax !== null && Number.isFinite(anioMax))
+      conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) <= ${anioMax}`);
 
     const where = conds.length ? and(...conds) : undefined;
 

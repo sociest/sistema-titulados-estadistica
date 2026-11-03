@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sun, Moon, LogOut, LogIn, Menu, X, GraduationCap } from "lucide-react";
+import { Sun, Moon, LogOut, LogIn, Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useCierreSesion } from "@/lib/useCierreSesion";
 
@@ -143,46 +143,21 @@ export default function Navbar() {
           </ul>
 
           <div className="flex items-center gap-1.5 shrink-0 justify-end min-w-0">
-            {/* Botón home secundario: lleva al inicio de la página de seguimiento */}
-            {isSeguimientoSub && (
-              <button
-                onClick={volverSeguimiento}
-                className="inline-flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg border border-white/20 text-white hover:bg-white/10 min-h-[40px] transition shrink-0"
-                title="Ir al inicio de la página de seguimiento a titulados"
-              >
-                <span className="w-7 h-7 rounded-lg bg-white/15 border border-white/25 flex items-center justify-center shrink-0">
-                  <GraduationCap className="w-4 h-4 text-amber-300" />
-                </span>
-                <span className="leading-tight text-left hidden xl:block">
-                  <span className="block text-[11px] font-black tracking-tight leading-none">Seguimiento a Titulados</span>
-                  <span className="block text-[9px] font-semibold text-white/70 tracking-wide mt-0.5">{leyendaSeguimiento}</span>
-                </span>
-              </button>
-            )}
-
             <button onClick={toggleTheme} className="p-2 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 min-h-[40px] flex items-center" title={theme === "light" ? "Noche 1 (oscuro actual)" : "Dis 1 (claro actual)"}>
               {theme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-300" />}
             </button>
 
             {user ? (
-              /* Con sesión abierta NO hay botón de cerrar sesión.
-                 La sesión es "interna": para salir del dashboard o de los formularios
-                 hay que cerrar la sesión, y ese es el único camino. El botón de arriba
-                 ("Seguimiento a Titulados") y el botón "atrás" del navegador abren el
-                 aviso de "¿Está seguro de cerrar la sesión?". */
-              <div
-                className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-white/20 shrink-0"
-                title={`Sesión activa: ${user.nombre}`}
+              <button
+                onClick={() => pedir("home")}
+                className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-[15px] min-h-[44px] shadow-sm transition shrink-0"
+                title="Cerrar sesión"
               >
-                <div className="w-8 h-8 rounded-full bg-white/15 border border-white/25 text-xs font-black flex items-center justify-center shrink-0">
-                  {user.nombre?.charAt(0).toUpperCase() || "?"}
-                </div>
-                <span className="hidden xl:block text-[10px] font-bold uppercase tracking-widest text-white/70 whitespace-nowrap">
-                  Sesión activa
-                </span>
-              </div>
+                <LogOut className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">Cerrar sesión</span>
+              </button>
             ) : !isEstadistica ? (
-              <Link href="/login" className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 bg-transparent text-white/90 text-[15px] font-normal hover:text-white shrink-0 min-h-[40px]">
+                <Link href="/login" className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-white text-[#1e3a8a] font-bold text-[15px] hover:bg-white/90 shrink-0 min-h-[44px] shadow-sm">
                 <LogIn className="w-4 h-4 shrink-0" />
                 <span className="hidden 2xl:inline">Ingresar</span>
               </Link>

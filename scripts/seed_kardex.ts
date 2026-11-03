@@ -21,7 +21,9 @@ export async function asegurarCuentaKardex(): Promise<{ correo: string; password
   }
 
   const password = process.env.KARDEX_SEED_PASSWORD || randomBytes(24).toString("base64url");
-  if (password.length < 12) throw new Error("KARDEX_SEED_PASSWORD debe tener al menos 12 caracteres.");
+  // "krd" es la contraseña definida para el usuario Kardex (ver credenciales.txt)
+  // Se permite de 3 caracteres minimum para este usuario especial
+  if (password.length < 3) throw new Error("KARDEX_SEED_PASSWORD debe tener al menos 3 caracteres.");
 
   const [creada] = await db
     .insert(usuarios)

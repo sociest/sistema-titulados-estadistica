@@ -14,7 +14,7 @@
  */
 
 import { db, pool } from "../src/db";
-import { personas, usuarios, noticiasCursos, carreras, solicitudTitulado, solicitudTituladoHistorial } from "../src/db/schema";
+import { personas, usuarios, noticiasCursos, carreras, solicitudTitulado, solicitudTituladoHistorial, credencialesPersona } from "../src/db/schema";
 import { sql } from "drizzle-orm";
 import { hashPassword } from "../src/lib/password";
 import { asegurarCuentaKardex } from "./seed_kardex";
@@ -309,7 +309,8 @@ async function main() {
   ];
 
   console.log("Insertando titulados y egresados de prueba...");
-  await db.insert(personas).values([...dataTitulados, ...dataEgresados]);
+  const insertedPersonas = await db.insert(personas).values([...dataTitulados, ...dataEgresados]).returning({ id: personas.id, ci: personas.cedulaIdentidad });
+  await db.insert(credencialesPersona).values(insertedPersonas.map((p) => ({ idPersona: p.id, passwordHash: hashPassword(p.ci) })));
 
   await db.insert(carreras).values([
     { ci: "7823901", carrera: "INGENIERÍA INFORMÁTICA", universidad: "UNIVERSIDAD MAYOR DE SAN ANDRÉS", facultad: "FACULTAD DE CIENCIAS PURAS Y NATURALES", grados: "LICENCIATURA" },

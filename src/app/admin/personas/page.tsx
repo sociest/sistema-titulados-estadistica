@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Search, Plus, Pencil, Trash2, X, Loader2, CheckCircle2,
@@ -43,6 +43,7 @@ interface Persona {
   telefono: string | null;
   redesSociales: string | null;
   ciudadRegionTrabajo: string | null;
+  imagenUrl: string | null;
   estadoLaboral: string | null;
   sectorTrabajo: string | null;
   sectorTrabajoOtro: string | null;
@@ -111,6 +112,7 @@ const FORM_VACIO: FormState = {
   telefono: "",
   redesSociales: "",
   ciudadRegionTrabajo: "",
+  imagenUrl: "",
   estadoLaboral: "DESEMPLEADO",
   sectorTrabajo: "",
   sectorTrabajoOtro: "",
@@ -133,6 +135,7 @@ const ETIQUETA_SECTOR: Record<string, string> = {
 
 export default function AdminPersonasPage() {
   const { user, loading: authLoading } = useAuth();
+  const imgFileInputRef = useRef<HTMLInputElement>(null);
 
   const [datos, setDatos] = useState<RespuestaListado | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -149,6 +152,7 @@ export default function AdminPersonasPage() {
   // Modal
   const [modal, setModal] = useState<"cerrado" | "nuevo" | "editar" | "borrar">("cerrado");
   const [editando, setEditando] = useState<Persona | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
@@ -266,6 +270,7 @@ export default function AdminPersonasPage() {
       telefono: p.telefono ?? "",
       redesSociales: p.redesSociales ?? "",
       ciudadRegionTrabajo: p.ciudadRegionTrabajo ?? "",
+      imagenUrl: p.imagenUrl ?? "",
       estadoLaboral: p.estadoLaboral ?? "DESEMPLEADO",
       sectorTrabajo: p.sectorTrabajo ?? "",
       sectorTrabajoOtro: p.sectorTrabajoOtro ?? "",
@@ -293,7 +298,7 @@ export default function AdminPersonasPage() {
       const res = await fetch(url, {
         method: modal === "editar" ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, imagenUrl: form.imagenUrl || null }),
       });
       const j = await res.json();
 
@@ -489,9 +494,17 @@ export default function AdminPersonasPage() {
                   <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <span className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black flex items-center justify-center shrink-0">
-                          {ETIQUETA_GENERO[p.genero] ?? "?"}
-                        </span>
+                        {p.imagenUrl ? (
+                          <img
+                            src={p.imagenUrl}
+                            alt={p.nombresApellidos}
+                            className="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                          />
+                        ) : (
+                          <span className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black flex items-center justify-center shrink-0">
+                            {ETIQUETA_GENERO[p.genero] ?? "?"}
+                          </span>
+                        )}
                         <div className="min-w-0">
                           <p className="font-semibold text-slate-900 dark:text-white truncate max-w-[240px]">{p.nombresApellidos}</p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">{p.cedulaIdentidad}</p>
@@ -839,8 +852,65 @@ export default function AdminPersonasPage() {
                   </label>
 
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Facebook / LinkedIn
-                    <input value={txt(form, "redesSociales")} onChange={(e) => set("redesSociales", e.target.value)} className={inp} />
+                    <span className="flex items-center gap-1.5">
+                      Foto / Imagen
+                      <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500">(URL, arrastre o subida)</span>
+                    </span>
+                    <input
+                      value={txt(form, "imagenUrl")}
+                      onChange={(e) => set("imagenUrl", e.target.value)}
+                      className={inp}
+                      placeholder="https://... o arrastre una imagen aquí"
+                    />
+                    {err("imagenUrl") && <span className={errMsg}>{err("imagenUrl")}</span>}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragOver(true);
+                      }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOver(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file && file.type.startsWith("image/")) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            set("imagenUrl", ev.target?.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className={`mt-2 border-2 border-dashed rounded-lg p-3 transition-colors ${
+                        dragOver
+                          ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                          : "border-slate-300 dark:border-slate-600 hover:border-blue-400"
+                      }`}
+                    >
+                      <input
+                        ref={imgFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              set("imagenUrl", ev.target?.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => imgFileInputRef.current?.click()}
+                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        ¿Subir archivo?
+                      </button>
+                    </div>
                   </label>
 
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">

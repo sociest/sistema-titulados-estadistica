@@ -49,21 +49,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const sesion = await leerSesionDeRequest(req);
     const patch: Record<string, unknown> = {};
 
-    // ── Cambio de contraseña ────────────────────────────────────────────────
+      // ── Cambio de contraseña ────────────────────────────────────────────────
     if (body.password !== undefined && body.password !== "") {
       if (typeof body.password !== "string" || body.password.length < 8) {
         return NextResponse.json({ error: "La contraseña debe tener al menos 8 caracteres" }, { status: 400 });
       }
-      // Para cambiar la contraseña de OTRO usuario hay que conocer la propia.
-      const esPropio = sesion?.sub === id;
-      if (!esPropio) {
-        const actualPass = (body.passwordActual ?? "").toString();
-        if (!actualPass || !verifyPassword(actualPass, antes.passwordHash)) {
-          return NextResponse.json(
-            { error: "Para cambiar la contraseña de otro usuario debe confirmar su propia contraseña" },
-            { status: 403 }
-          );
-        }
+      // Siempre hay que confirmar la contraseña actual, sea el propio usuario o otro.
+      const actualPass = (body.passwordActual ?? "").toString();
+      if (!actualPass || !verifyPassword(actualPass, antes.passwordHash)) {
+        return NextResponse.json(
+          { error: "Debe confirmar su contraseña actual para cambiarla" },
+          { status: 403 }
+        );
       }
       patch.passwordHash = hashPassword(body.password);
     }
@@ -169,15 +166,18 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       }
     }
 
-    await db.delete(usuarios).where(eq(usuarios.id, id));
+    await db.update(usuarios)
+      .set({ estado: "inactivo", actualizadoEn: new Date() })
+      .where(eq(usuarios.id, id));
 
     await registrarAuditoria({
       accion: "eliminar",
       entidad: "usuarios",
       entidadId: id,
       idUsuario: sesion?.sub ?? null,
-      detalles: `Usuario eliminado: ${actual[0]!.correo}`,
+      detalles: `Usuario desactivado (baja lógica): ${actual[0]!.correo}`,
       datosAnteriores: { correo: actual[0]!.correo, rol: actual[0]!.rol, estado: actual[0]!.estado },
+      datosNuevos: { correo: actual[0]!.correo, rol: actual[0]!.rol, estado: "inactivo" },
       req,
     });
 

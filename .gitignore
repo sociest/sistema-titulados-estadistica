@@ -55,6 +55,9 @@ Desktop.ini
 *~
 .vs/
 *.code-workspace
+* - Copy*
+*Copy*
+
 
 # ── Datos de la base de datos y archivos subidos por usuarios ────
 # Los genera la aplicación en runtime; nada de esto va al repo.

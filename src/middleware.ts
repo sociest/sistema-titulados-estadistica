@@ -163,7 +163,14 @@ export async function middleware(req: NextRequest) {
 
   if (regla && (!rol || !regla.roles.includes(rol))) {
     // Con sesión pero del rol equivocado: a su portal, no a /login.
-    const destino = rol === "admin" ? "/admin/dashboard" : rol === "KARDEX" ? "/kardex/solicitudes" : `/portal/${rol!.toLowerCase()}`;
+    const destino =
+      rol === "admin"
+        ? "/admin/dashboard"
+        : rol === "KARDEX"
+          ? "/kardex/solicitudes"
+          : rol === "TITULADO" || rol === "EGRESADO"
+            ? `/portal/${rol.toLowerCase()}`
+            : "/login";
     const url = req.nextUrl.clone();
     url.pathname = destino;
     url.search = "";

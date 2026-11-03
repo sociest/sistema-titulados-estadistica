@@ -1,0 +1,1 @@
+ALTER TABLE "personas" ADD COLUMN IF NOT EXISTS "imagen_url" varchar(500);
