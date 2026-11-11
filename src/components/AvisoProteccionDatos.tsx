@@ -52,9 +52,7 @@ export const AVISO_ESTADISTICO = {
   titulo: "Aviso de protección de datos y secreto estadístico",
   parrafos: [
     "Los datos que ingrese en este formulario se utilizan exclusivamente para elaborar estadísticas de seguimiento de titulados y egresados de la Carrera de Estadística.",
-    "Conforme al Artículo 5 de la Ley N° 1405 de Estadísticas Oficiales, la información proporcionada no puede ser revelada de forma individual y solo se publica de forma anonimizada. Los indicadores que se publican al público son conteos agregados y no contienen ningún dato personal (nombre, cédula, correo ni teléfono) que pudiera revelar la identidad de una persona.",
-    "Su información no podrá utilizarse con propósitos tributarios, judiciales, administrativos ni policiales, aunque medie orden administrativa o judicial.",
-    "Usted puede acceder a sus datos, corregirlos, obtener una copia o solicitar su supresión escribiendo a la Carrera o desde su cuenta del portal.",
+    "Conforme al Artículo 5 de la Ley N° 1405 de Estadísticas Oficiales, la información proporcionada no puede ser revelada de forma individual y solo se publica de forma anonimizada.",
   ],
 } as const;
 
@@ -74,10 +72,6 @@ export default function AvisoProteccionDatos({ className = "" }: { className?: s
         ))}
       </div>
 
-      <p className="mt-2 border-t border-emerald-200 dark:border-emerald-900 pt-2 text-[11px] text-emerald-800/80 dark:text-emerald-300/70">
-        Fundamento: Ley N° 1405, Artículos 4, 5, 8 y 22. El tratamiento técnico se apoya en
-        los marcos ISO/IEC 27001, 27701, 27002 y 25010.
-      </p>
     </section>
   );
 }

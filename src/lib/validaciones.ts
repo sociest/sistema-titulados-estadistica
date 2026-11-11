@@ -1,6 +1,26 @@
 import { z } from "zod";
 
 /**
+ * Los formularios envían "" cuando un campo no tiene respuesta. Un enum no acepta "",
+ * así que se convierte a null antes de validar (el caso "planeaTitularse: received ''").
+ */
+export const enumOpcional = <T extends z.ZodTypeAny>(esquema: T) =>
+  z.preprocess((v) => (v === "" ? null : v), esquema.nullable());
+
+/** Imagen de noticia: URL http(s) o archivo ya subido al servidor. Rechaza rutas locales. */
+export const urlImagenNoticia = z
+  .string()
+  .trim()
+  .max(500)
+  .refine(
+    (v) =>
+      v === "" ||
+      /^https?:\/\/[^\s]+$/i.test(v) ||
+      /^\/api\/noticias\/imagen\/[a-f0-9-]{36}\.(jpg|png|webp)$/.test(v),
+    "La imagen debe ser una URL http(s) o un archivo subido desde el sistema"
+  );
+
+/**
  * Booleano tolerante. `z.coerce.boolean()` hace `Boolean(v)`, así que "NO", "false" y "0"
  * daban `true`; aquí se interpretan por su significado (CSV, Excel y formularios).
  * Un valor vacío cuenta como "no informado" (undefined).
@@ -102,15 +122,15 @@ export const personaAdminSchema = z
     semestreEgreso: semestre.nullable().optional(),
     anioEgreso: anio.nullable().optional(),
     anioTitulacion: anio.nullable().optional(),
-    modalidadTitulacion: modalidadEnum.nullable().optional(),
+    modalidadTitulacion: enumOpcional(modalidadEnum).optional(),
     areaEspecializacion: textoOpcional(200),
-    nivelEstudio: nivelEstudioEnum.nullable().optional(),
+    nivelEstudio: enumOpcional(nivelEstudioEnum).optional(),
     realizoCursoUltimos3Anos: z.boolean().nullable().optional(),
     ultimoCurso: textoOpcional(200),
 
-    planeaTitularse: planeaEnum.nullable().optional(),
-    inicioProcesoTitulacion: inicioProcesoEnum.nullable().optional(),
-    motivoNoTitulacion: motivoEnum.nullable().optional(),
+    planeaTitularse: enumOpcional(planeaEnum).optional(),
+    inicioProcesoTitulacion: enumOpcional(inicioProcesoEnum).optional(),
+    motivoNoTitulacion: enumOpcional(motivoEnum).optional(),
 
     correoElectronico: z
       .string()
@@ -132,10 +152,10 @@ export const personaAdminSchema = z
     ciudadRegionTrabajo: textoOpcional(200),
 
     // Campo de imagen: URL web, ruta local o ruta relativa. Opcional.
-    imagenUrl: z.string().trim().max(500).nullable().optional(),
+    imagenUrl: urlImagenNoticia.nullable().optional(),
 
     estadoLaboral: estadoLaboralEnum.default("DESEMPLEADO"),
-    sectorTrabajo: sectorEnum.nullable().optional(),
+    sectorTrabajo: enumOpcional(sectorEnum).optional(),
     sectorTrabajoOtro: textoOpcional(200),
     ocupacionCargo: textoOpcional(200),
     trabajaEnEstadistica: z.coerce.boolean().default(false),
@@ -234,6 +254,13 @@ export const personaAdminSchema = z
           message: "No aplica: ya inició su proceso de titulación",
         });
       }
+      if (v.planeaTitularse !== "SI" && v.inicioProcesoTitulacion) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["inicioProcesoTitulacion"],
+          message: "No aplica: solo si planea titularse",
+        });
+      }
     }
   });
 
@@ -265,33 +292,21 @@ export const personaAutogestionSchema = z
       .optional(),
     redesSociales: textoOpcional(300),
     ciudadRegionTrabajo: textoOpcional(200),
-    nivelEstudio: nivelEstudioEnum.nullable().optional(),
+    nivelEstudio: enumOpcional(nivelEstudioEnum).optional(),
     realizoCursoUltimos3Anos: z.boolean().nullable().optional(),
     ultimoCurso: textoOpcional(200),
     estadoLaboral: estadoLaboralEnum.optional(),
-    sectorTrabajo: sectorEnum.nullable().optional(),
+    sectorTrabajo: enumOpcional(sectorEnum).optional(),
     sectorTrabajoOtro: textoOpcional(200),
     ocupacionCargo: textoOpcional(200),
     trabajaEnEstadistica: z.coerce.boolean().optional(),
     tiempoInsercionLaboralMeses: z.coerce.number().int().min(0).max(600).nullable().optional(),
     observaciones: textoOpcional(2000),
     // Solo egresados
-    planeaTitularse: planeaEnum.nullable().optional(),
-    inicioProcesoTitulacion: inicioProcesoEnum.nullable().optional(),
-    motivoNoTitulacion: motivoEnum.nullable().optional(),
+    planeaTitularse: enumOpcional(planeaEnum).optional(),
+    inicioProcesoTitulacion: enumOpcional(inicioProcesoEnum).optional(),
+    motivoNoTitulacion: enumOpcional(motivoEnum).optional(),
 
-    // Consentimiento en la AUTOGESTIÓN del portal (misma exigencia que el alta pública).
-    //
-    // Aceptar el aviso una vez no cubre indefinidamente el tratamiento posterior: los
-    // datos que el titular envía desde el portal también se usan para los indicadores.
-    // Por eso la casilla es obligatoria en cada envío y viaja con la versión del aviso,
-    // de modo que quede constancia de qué texto se aceptó y cuándo (art. 130 CPE).
-    consentimientoPrivacidad: z.literal(true, {
-      errorMap: () => ({
-        message: "Debe aceptar el aviso de privacidad para guardar sus datos",
-      }),
-    }),
-    versionAvisoPrivacidad: z.string().trim().min(1).max(20),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -317,6 +332,13 @@ export const personaAutogestionSchema = z
         code: z.ZodIssueCode.custom,
         path: ["motivoNoTitulacion"],
         message: "No aplica: ya inició su proceso de titulación",
+      });
+    }
+    if (v.planeaTitularse !== "SI" && v.inicioProcesoTitulacion) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inicioProcesoTitulacion"],
+        message: "No aplica: solo si planea titularse",
       });
     }
   });
@@ -377,16 +399,16 @@ export const personaRegistroPublicoSchema = z
     semestreEgreso: semestre.nullable().optional(),
     anioEgreso: anio.nullable().optional(),
     anioTitulacion: anio.nullable().optional(),
-    modalidadTitulacion: modalidadEnum.nullable().optional(),
+    modalidadTitulacion: enumOpcional(modalidadEnum).optional(),
     areaEspecializacion: textoOpcional(200),
 
-    planeaTitularse: planeaEnum.nullable().optional(),
-    inicioProcesoTitulacion: inicioProcesoEnum.nullable().optional(),
-    motivoNoTitulacion: motivoEnum.nullable().optional(),
+    planeaTitularse: enumOpcional(planeaEnum).optional(),
+    inicioProcesoTitulacion: enumOpcional(inicioProcesoEnum).optional(),
+    motivoNoTitulacion: enumOpcional(motivoEnum).optional(),
 
     ciudadRegionTrabajo: textoOpcional(200),
-    estadoLaboral: estadoLaboralEnum.nullable().optional(),
-    sectorTrabajo: sectorEnum.nullable().optional(),
+    estadoLaboral: enumOpcional(estadoLaboralEnum).optional(),
+    sectorTrabajo: enumOpcional(sectorEnum).optional(),
     sectorTrabajoOtro: textoOpcional(200),
     ocupacionCargo: textoOpcional(200),
     trabajaEnEstadistica: z.coerce.boolean().default(false),
@@ -480,6 +502,13 @@ export const personaRegistroPublicoSchema = z
           message: "No aplica: ya inició su proceso de titulación",
         });
       }
+      if (v.planeaTitularse !== "SI" && v.inicioProcesoTitulacion) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["inicioProcesoTitulacion"],
+          message: "No aplica: solo si planea titularse",
+        });
+      }
     }
   });
 
@@ -537,7 +566,7 @@ export const noticiaSchema = z
     publicado: booleano.optional(),
     enlace: z.string().trim().max(500).nullable().optional(),
     destacado: booleano.optional(),
-    imagenUrl: z.string().trim().max(500).nullable().optional(),
+    imagenUrl: urlImagenNoticia.nullable().optional(),
   })
   .strict();
 
@@ -550,7 +579,7 @@ export const noticiaActualizacionSchema = noticiaSchema.partial().strict();
 /** Solicitud de enlace de descarga firmado (admin). */
 export const enlaceDescargaSchema = z
   .object({
-    destino: z.enum(["personas", "dashboard", "pdf"], {
+    destino: z.enum(["excel", "csv", "pdf"], {
       errorMap: () => ({ message: "Destino no permitido" }),
     }),
     params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),

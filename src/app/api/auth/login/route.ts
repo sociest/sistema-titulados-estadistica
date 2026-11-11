@@ -7,7 +7,7 @@ import { verifyPassword } from "@/lib/password";
 import { crearToken, opcionesCookie } from "@/lib/sesion";
 import { loginSchema, primerErrorZod } from "@/lib/validaciones";
 import { registrarAuditoria, ipDesde } from "@/lib/auditoria";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { verificarLimite, registrarIntento, limpiarIntentos } from "@/lib/rateLimit";
 import { registrarSesion } from "@/lib/sesiones";
 import { DURACION_SESION_MS } from "@/lib/sesion";
@@ -17,6 +17,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     // ── Validar entrada ────────────────────────────────────────────────────────
     let body: unknown;
     try {

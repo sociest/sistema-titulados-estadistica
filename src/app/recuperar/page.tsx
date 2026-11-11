@@ -205,7 +205,7 @@ function RecuperarFormulario() {
 
 export default function RecuperarPage() {
   return (
-    <Suspense fallback={<div className="py-12 text-center text-sm text-slate-500">Cargando…</div>}>
+    <Suspense fallback={<div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">Cargando…</div>}>
       <RecuperarFormulario />
     </Suspense>
   );

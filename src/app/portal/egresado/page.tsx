@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { validarSectorOtro } from "@/lib/sectorOtro";
 import AvisoProteccionDatos from "@/components/AvisoProteccionDatos";
-import { VERSION_AVISO_PRIVACIDAD as VERSION_AVISO } from "@/lib/validaciones";
 
 interface SolicitudPropia {
   id: number;
@@ -22,8 +21,6 @@ export default function EgresadoPortal() {
   const [inicio, setInicio] = useState<string>("");
   const [saving, setSaving] = useState(false);
   // Consentimiento expreso: sin marcar esta casilla el servidor rechaza el guardado.
-  const [acepta, setAcepta] = useState(false);
-  const [msgConsentimiento, setMsgConsentimiento] = useState("");
   const [msg, setMsg] = useState("");
   const [sector, setSector] = useState<string>("");
   const [otroSector, setOtroSector] = useState<string>("");
@@ -61,15 +58,11 @@ export default function EgresadoPortal() {
 
   const onSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!acepta) { setMsgConsentimiento("Debe aceptar el aviso de privacidad para guardar sus datos"); return; }
-    setMsgConsentimiento("");
     const fd = new FormData(e.currentTarget);
     const payload: any = {};
     ["correoElectronico","telefono","redesSociales","ciudadRegionTrabajo","estadoLaboral","sectorTrabajo","ocupacionCargo","observaciones","tiempoInsercionLaboralMeses"].forEach(k=> payload[k]=fd.get(k));
     // El sector "--" (vacío) no debe bloquear el guardado: se envía como null.
     if (payload.sectorTrabajo === "") payload.sectorTrabajo = null;
-    payload.consentimientoPrivacidad = true;
-    payload.versionAvisoPrivacidad = VERSION_AVISO;
     payload.trabajaEnEstadistica = fd.get("trabajaEnEstadistica")==="SI";
     if (fd.get("sectorTrabajo") === "OTRO") {
       // Si escribió algo se valida (palabra coherente); si está vacío solo se envía OTRO
@@ -123,7 +116,7 @@ export default function EgresadoPortal() {
 
   const input = "w-full mt-1 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
   const lbl = "text-xs font-bold text-slate-700 dark:text-slate-300";
-  const K = "bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-700";
+  const K = "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed border-slate-200 dark:border-slate-700";
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-xl p-3 text-xs">
@@ -190,7 +183,7 @@ export default function EgresadoPortal() {
               <p className="text-sm font-normal text-slate-700 dark:text-slate-200">Arrastre su documento o elíjalo en el selector de archivos</p>
               <input ref={inputArchivos} type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" multiple className="hidden" onChange={(event) => { if (event.target.files) agregarArchivos(event.target.files); }} />
               <button type="button" onClick={() => inputArchivos.current?.click()} className="mt-3 min-h-10 rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white hover:bg-teal-800">Elegir archivos</button>
-              <p className="mt-2 text-xs font-normal text-slate-500">PDF, PNG o JPEG · máximo 10 MB por archivo · hasta 5 documentos</p>
+              <p className="mt-2 text-xs font-normal text-slate-500 dark:text-slate-400">PDF, PNG o JPEG · máximo 10 MB por archivo · hasta 5 documentos</p>
               {documentos.length > 0 && <ul className="mt-3 space-y-1 text-left text-sm">{documentos.map((file, index) => <li key={`${file.name}-${index}`} className="flex justify-between gap-3"><span className="truncate">{file.name}</span><button type="button" onClick={() => setDocumentos((actuales) => actuales.filter((_, i) => i !== index))} className="text-red-700 underline">Quitar</button></li>)}</ul>}
               <button type="button" onClick={() => void enviarSolicitud()} disabled={enviandoSolicitud || documentos.length === 0} className="mt-4 min-h-11 rounded-lg bg-amber-500 px-5 text-sm font-bold text-slate-950 disabled:opacity-50">{enviandoSolicitud ? "Enviando..." : "Enviar solicitud de titulación"}</button>
             </div>
@@ -199,25 +192,7 @@ export default function EgresadoPortal() {
           {solicitudes.length > 0 && <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700"><h2 className="text-sm font-semibold">Estado de tus solicitudes</h2><ul className="mt-2 space-y-2">{solicitudes.map((solicitud) => <li key={solicitud.id} className="text-sm font-normal">#{solicitud.id} · {solicitud.estado} · {new Date(solicitud.fechaSolicitud).toLocaleDateString("es-BO")}{solicitud.detalle && <p className="mt-1 text-slate-600 dark:text-slate-300">Motivo: {solicitud.detalle}</p>}</li>)}</ul></div>}
         </section>
         {msg && <div className="text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 rounded-lg px-3 py-2">{msg}</div>}
-          <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4 cursor-pointer sm:col-span-2">
-            <input
-              type="checkbox"
-              name="consentimientoPrivacidad"
-              required
-              checked={acepta}
-              onChange={(e) => setAcepta(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700"
-            />
-            <span className="text-xs leading-relaxed">
-              He leido el <strong className="font-bold">aviso de privacidad</strong> y
-              acepto el tratamiento de mis datos para los fines indicados en el Art. 5
-              de la Ley N. 1405. Entiendo que puedo retirar este consentimiento en
-              cualquier momento.
-              {msgConsentimiento && (
-                <span className="block mt-1 font-semibold text-red-600">{msgConsentimiento}</span>
-              )}
-            </span>
-          </label>
+          
         <button disabled={saving} className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-2.5 font-bold disabled:opacity-50">{saving?"Guardando...":"Guardar cambios"}</button>
       </form>
     </div>

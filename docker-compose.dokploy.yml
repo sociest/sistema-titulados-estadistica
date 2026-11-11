@@ -17,7 +17,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD en Environment}
     volumes:
       - postgres_dokploy_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,6 +39,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     container_name: sistitulados_dokploy_app
     restart: unless-stopped
     depends_on:
@@ -49,14 +52,25 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
-      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET:?Defina SESSION_SECRET en Environment}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       SITIO_URL: ${SITIO_URL:-http://localhost:3000}
-      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
-      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-1x0000000000000000000000000000000AA}
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       AUTORUN_MIGRATIONS: ${AUTORUN_MIGRATIONS:-true}
-      AUTORUN_SEED: ${AUTORUN_SEED:-true}
+      AUTORUN_SEED: ${AUTORUN_SEED:-false}
       TZ: America/La_Paz
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-}
+      KARDEX_SEED_EMAIL: ${KARDEX_SEED_EMAIL:-}
+      KARDEX_SEED_PASSWORD: ${KARDEX_SEED_PASSWORD:-}
+    volumes:
+      - solicitudes_dokploy_storage:/app/storage/solicitudes
+      - noticias_dokploy_storage:/app/storage/noticias
     deploy:
       resources:
         limits:
@@ -70,6 +84,8 @@ services:
 volumes:
   postgres_dokploy_data:
     driver: local
+  solicitudes_dokploy_storage: {}
+  noticias_dokploy_storage: {}
 
 networks:
   internal_net:

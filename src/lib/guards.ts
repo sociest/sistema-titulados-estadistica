@@ -125,6 +125,63 @@ async function registrarAccesoDenegado(
   });
 }
 
+/**
+ * Protección CSRF ligera para rutas de escritura sensibles.
+ *
+ * Verifica que el header `Origin` o `Referer` coincida con el host de la aplicación
+ * (`NEXT_PUBLIC_APP_URL`). No es un token CSRF doble, pero con `sameSite: lax` en las
+ * cookies de sesión y esta comprobación de origen, un sitio tercero no puede forjar
+ * una petición autenticada contra `/api/exportar`, `/api/importar`, `/api/usuarios`,
+ * etc. porque el navegador no envía `Origin` en peticiones de origen cruzado y
+ * `Referer` puede omitirse pero `Origin` sí se envía en peticiones POST/PUT/DELETE con
+ * credenciales.
+ *
+ * La comprobación usa el header `Host` de la petición (que el navegador fija al
+ * servidor destino y un sitio tercero no puede falsificar) además de
+ * `NEXT_PUBLIC_APP_URL`, de modo que funciona también detrás de un proxy que
+ * reescribe el host. No se desactiva por `NODE_ENV`: las peticiones legítimas de
+ * navegador siempre envían `Origin` o `Referer`.
+ *
+ * Escape hatch: `CSRF_DISABLED=1` (solo para herramientas internas sin navegador).
+ */
+export async function verificarCsrf(req: NextRequest): Promise<NextResponse | null> {
+  if (process.env.CSRF_DISABLED === "1") return null;
+
+  const origen = req.headers.get("origin") ?? req.headers.get("referer");
+  if (!origen) {
+    return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
+  }
+
+  try {
+    const url = new URL(origen);
+    const permitidos = new Set<string>();
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (appUrl) {
+      try {
+        permitidos.add(new URL(appUrl).host);
+      } catch {
+        // NEXT_PUBLIC_APP_URL inválida: se ignora y se usa el Host real.
+      }
+    }
+
+    const hostCabecera = (
+      req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? ""
+    )
+      .split(",")[0]!
+      .trim();
+    if (hostCabecera) permitidos.add(hostCabecera);
+
+    if (!permitidos.has(url.host)) {
+      return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Origen inválido" }, { status: 403 });
+  }
+
+  return null;
+}
+
 /** Respuesta uniforme de error interno, sin filtrar detalles de la base de datos. */
 export function errorInterno(e: unknown, contexto: string): NextResponse {
   // El detalle real solo al log del servidor, nunca al cliente.

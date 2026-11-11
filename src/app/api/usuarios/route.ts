@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { usuarios, personas } from "@/db/schema";
 import { count, desc, eq, or, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdmin, verificarCsrf, errorInterno } from "@/lib/guards";
 import { leerSesionDeRequest } from "@/lib/sesion";
 import { hashPassword } from "@/lib/password";
 import { registrarAuditoria } from "@/lib/auditoria";
@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   try {
     let body: unknown;

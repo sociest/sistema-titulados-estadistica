@@ -155,6 +155,7 @@ export default function AdminPersonasPage() {
   const [dragOver, setDragOver] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
+  const [confirmarPersona, setConfirmarPersona] = useState<null | { cambios: { campo: string; antes: string; nuevo: string }[] }>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [campoError, setCampoError] = useState<Record<string, string[]>>({});
   const [estadoCi, setEstadoCi] = useState<EstadoCi>({ estado: "idle", texto: "", color: "" });
@@ -286,6 +287,24 @@ export default function AdminPersonasPage() {
     setModal("editar");
   };
 
+  /** Edición: antes de guardar se muestra el diff y se pide confirmación. */
+  const pedirConfirmacion = () => {
+    if (!editando) return;
+    const base = editando as unknown as Record<string, unknown>;
+    const cambios = Object.keys(form)
+      .map((k) => ({
+        campo: k,
+        antes: String(base[k] ?? ""),
+        nuevo: String((form as unknown as Record<string, unknown>)[k] ?? ""),
+      }))
+      .filter((c) => c.antes.trim() !== c.nuevo.trim());
+    if (cambios.length === 0) {
+      guardar();
+      return;
+    }
+    setConfirmarPersona({ cambios });
+  };
+
   const guardar = async () => {
     setGuardando(true);
     setMsg(null);
@@ -358,11 +377,32 @@ export default function AdminPersonasPage() {
 
   const resumen = datos?.resumen;
 
-  if (authLoading) return <div className="p-8 text-sm text-slate-500">Verificando sesión…</div>;
+  if (authLoading) return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
   if (!user || user.rol !== "admin") return null;
 
   return (
     <>
+      {confirmarPersona && (
+        <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <h2 className="font-black text-lg text-slate-900 dark:text-white">¿Está seguro de guardar estos cambios?</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Revise qué cambia antes de confirmar. Quedará registrado en el historial.</p>
+            <div className="max-h-72 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl">
+              {confirmarPersona.cambios.map((c) => (
+                <div key={c.campo} className="p-3 text-sm">
+                  <div className="font-bold text-slate-700 dark:text-slate-200">{c.campo}</div>
+                  <div className="text-slate-500 dark:text-slate-400 line-through break-words">{c.antes || "(vacío)"}</div>
+                  <div className="text-emerald-700 dark:text-emerald-400 font-semibold break-words">→ {c.nuevo || "(vacío)"}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmarPersona(null)} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 font-bold text-sm">No, volver</button>
+              <button onClick={() => { setConfirmarPersona(null); guardar(); }} className="px-4 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-sm">Sí, guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
       <LoadingOverlay visible={guardando} icon={<Loader2 className="w-7 h-7 animate-spin" />} title="Guardando" label="Registro" />
 
       <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
@@ -411,7 +451,7 @@ export default function AdminPersonasPage() {
           ].map((c) => (
             <div key={c.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{c.label}</span>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">{c.label}</span>
                 <c.icon className={`w-4 h-4 ${c.color}`} />
               </div>
               <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{c.valor}</p>
@@ -455,7 +495,7 @@ export default function AdminPersonasPage() {
           </select>
 
           <button onClick={cargar} title="Recargar"
-            className="p-2.5 text-slate-500 hover:text-blue-900 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+            className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-blue-900 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition">
             <RefreshCw className={`w-4 h-4 ${cargando ? "animate-spin" : ""}`} />
           </button>
         </div>
@@ -522,12 +562,12 @@ export default function AdminPersonasPage() {
                       {p.tipo === "TITULADO" ? (
                         <>
                           <p className="font-medium">{p.anioTitulacion ?? "—"}</p>
-                          <p className="text-[11px] text-slate-500">{p.modalidadTitulacion ?? "—"}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">{p.modalidadTitulacion ?? "—"}</p>
                         </>
                       ) : (
                         <>
                           <p className="font-medium">Egresó {p.anioEgreso ?? "—"}</p>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
                             {p.planeaTitularse === "SI" ? "Planea titularse"
                               : p.planeaTitularse === "NO_SABE" ? "No sabe"
                               : p.planeaTitularse === "NO" ? "No planea" : "—"}
@@ -537,7 +577,7 @@ export default function AdminPersonasPage() {
                     </td>
                     <td className="py-3 px-4">
                       <p className="text-slate-700 dark:text-slate-300">{ETIQUETA_ESTADO[p.estadoLaboral ?? ""] ?? "—"}</p>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         {p.sectorTrabajo === "OTRO" && p.sectorTrabajoOtro
                           ? p.sectorTrabajoOtro
                           : ETIQUETA_SECTOR[p.sectorTrabajo ?? ""] ?? "—"}
@@ -567,7 +607,7 @@ export default function AdminPersonasPage() {
           {/* Paginación */}
           {datos && datos.paginas > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-800 text-xs">
-              <span className="text-slate-500">
+              <span className="text-slate-500 dark:text-slate-400">
                 Página {datos.pagina} de {datos.paginas} · {datos.total} registros
               </span>
               <div className="flex gap-2">
@@ -594,12 +634,9 @@ export default function AdminPersonasPage() {
                 <h2 className="font-black text-base text-slate-900 dark:text-white">
                   {modal === "nuevo" ? "Nueva persona" : "Editar registro"}
                 </h2>
-                <p className="text-[11px] text-slate-500">
-                  Los campos <b>K</b> los carga la carrera y solo el administrador puede editarlos.
-                </p>
               </div>
               <button onClick={() => setModal("cerrado")} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-                <X className="w-5 h-5 text-slate-500" />
+                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
               </button>
             </div>
 
@@ -931,7 +968,7 @@ export default function AdminPersonasPage() {
               <button onClick={() => setModal("cerrado")} className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800">
                 Cancelar
               </button>
-              <button onClick={guardar} disabled={guardarBloqueado}
+              <button onClick={modal === "editar" ? pedirConfirmacion : guardar} disabled={guardarBloqueado}
                 className="px-5 py-2 rounded-xl text-xs font-black bg-blue-900 hover:bg-blue-800 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                 {guardando ? "Guardando…" : modal === "nuevo" ? "Registrar persona" : "Guardar cambios"}
               </button>

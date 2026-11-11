@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { noticiasCursos, type NuevaNoticiaCurso } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
-import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin, errorInterno, verificarCsrf, leerSesionVigente } from "@/lib/guards";
+import { registrarCambio } from "@/lib/auditoriaTablas";
+import { calcularCambios } from "@/lib/diff";
 import { noticiaActualizacionSchema, primerErrorZod } from "@/lib/validaciones";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +20,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const denegado = await exigirAdmin(req);
     if (denegado) return denegado;
   }
+  // El admin ve también las ocultas aunque no pida ?admin=1 (el enlace "Ver" del panel).
+  const verTodas = admin || (await leerSesionVigente(req))?.rol === "admin";
 
   try {
-    const rows = admin
+    const rows = verTodas
       ? await db.select().from(noticiasCursos).where(eq(noticiasCursos.id, id)).limit(1)
       : await db
           .select()
@@ -47,6 +49,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   let crudo: unknown;
   try {
@@ -87,14 +92,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .where(eq(noticiasCursos.id, id))
       .returning();
 
-    await registrarAuditoria({
+    const sesion = await leerSesionVigente(req);
+    await registrarCambio({
+      tabla: "audit_noticias",
       accion: "editar",
-      entidad: "noticias_cursos",
       entidadId: id,
-      idUsuario: await (await leerSesionDeRequest(req))?.sub ?? null,
-      detalles: `Publicación editada: "${actualizada!.titulo}" · campos: ${Object.keys(patch).filter((k) => k !== "actualizadoEn").join(", ")}`,
-      datosAnteriores: antes[0] ?? null,
-      datosNuevos: actualizada,
+      idUsuario: sesion?.sub ?? null,
+      rol: sesion?.rol ?? null,
+      anterior: antes[0] ?? null,
+      nuevo: actualizada,
+      cambios: calcularCambios(antes[0] as Record<string, unknown>, actualizada as Record<string, unknown>),
       req,
     });
 
@@ -113,19 +120,25 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
 
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   try {
     const antes = await db.select().from(noticiasCursos).where(eq(noticiasCursos.id, id)).limit(1);
     if (!antes.length) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
     await db.delete(noticiasCursos).where(eq(noticiasCursos.id, id));
 
-    await registrarAuditoria({
+    const sesionBaja = await leerSesionVigente(req);
+    await registrarCambio({
+      tabla: "audit_noticias",
       accion: "eliminar",
-      entidad: "noticias_cursos",
       entidadId: id,
-      idUsuario: await (await leerSesionDeRequest(req))?.sub ?? null,
-      detalles: `Publicación eliminada: "${antes[0]!.titulo}"`,
-      datosAnteriores: antes[0],
+      idUsuario: sesionBaja?.sub ?? null,
+      rol: sesionBaja?.rol ?? null,
+      anterior: antes[0] ?? null,
+      nuevo: null,
+      cambios: [],
       req,
     });
 

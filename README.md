@@ -79,8 +79,10 @@ recomendado para producción. No necesitás Node ni PostgreSQL instalados en el 
 ```bash
 cd sistema1_5
 
-# 1. Configurar el puerto de publicación de PostgreSQL en el host
-#    (ya viene en 5433; cambialo solo si tenés el puerto ocupado)
+# 1. Crear tu .env a partir de la plantilla (la plantilla NO tiene datos reales)
+cp .env.example .env
+#    Completá en .env como mínimo DB_PASSWORD y SESSION_SECRET (ver comentarios del archivo).
+#    DB_PORT ya viene en 5433; cambialo solo si tenés el puerto ocupado.
 nano .env
 
 # 2. Levantar la app y la BD
@@ -202,7 +204,7 @@ docker compose up -d db
 
 # PowerShell no expande `$(...)`, así que se arma la variable explícita.
 # El puerto es DB_PORT de `.env` (5433 si tenés PostgreSQL nativo en 5432).
-$env:DATABASE_URL = "postgresql://seguit_app:clave_segura_123@localhost:5433/sistitulados_db"
+$env:DATABASE_URL = "postgresql://seguit_app:TU_DB_PASSWORD@localhost:5433/sistitulados_db"   # la DB_PASSWORD de tu .env
 pnpm db:migrate
 pnpm seed
 pnpm dev
@@ -246,8 +248,8 @@ cd sistema1_5
 pnpm install
 
 # 2. Variables de entorno
-cp .env.example .env.local     # en Windows: copy .env.example .env.local
-#    Editá .env.local y poné tu DATABASE_URL (ver 4.3)
+cp .env.example .env           # en Windows: copy .env.example .env
+#    Editá .env: completá DATABASE_URL (ver 4.3) y SESSION_SECRET
 
 # 3. Crear la base de datos (una sola vez)
 sudo -u postgres createdb sistitulados_db
@@ -274,7 +276,7 @@ pnpm seed:masivo               # los carga en la base por lotes
 
 La semilla es **idempotente**: si las cédulas ya existen, las omite y no duplica nada.
 
-### 4.3 `.env.local` — la única fuente de verdad
+### 4.3 `.env` — la única fuente de verdad
 
 Todos los comandos (`pnpm dev`, `pnpm db:*`, `pnpm seed*`) leen `DATABASE_URL` de ahí.
 Si el archivo no existe o le falta la variable, los scripts fallan con un error explícito
@@ -344,7 +346,7 @@ Sale algo como `aVrG0YqCNcUwk9OgiK7LxX0g03nMZDMtyCtWd6hrObSuIFYIZuM_5l4IRWcu7WId
 
 ### Cómo usarlo
 
-Opción A — en el archivo `.env.production` del servidor (recomendado):
+Opción A — en el archivo `.env` (local) o en la pestaña *Environment* de Dokploy (producción):
 
 ```dotenv
 SESSION_SECRET=aVrG0YqCNcUwk9OgiK7LxX0g03nMZDMtyCtWd6hrObSuIFYIZuM_5l4IRWcu7WId
@@ -363,7 +365,7 @@ echo "SESSION_SECRET=$(openssl rand -base64 48)" | sudo tee -a /etc/seguit/secre
 
 ### Reglas
 
-- **Nunca** subirlo al repositorio. Ya está cubierto: `.gitignore` ignora `.env*`.
+- **Nunca** subirlo al repositorio. Ya está cubierto: `.gitignore` y `.dockerignore` ignoran `.env*` (solo se versiona `.env.example`, sin valores reales).
 - Si cambia, **todas las sesiones abiertas quedan invalidadas** y hay que volver a iniciar sesión.
 - Cada entorno (local, pruebas, producción) debe tener **su propio** secreto.
 - Regenerarlo es la forma de "echar" a todos los que tuvieran sesión abierta.
@@ -409,7 +411,7 @@ sistema1_5/
 │   │   └── login/              Inicio de sesión
 │   ├── components/              Navbar, PublicDashboard, KpiNavigation, LoadingOverlay
 │   ├── db/                      schema.ts (tablas) e index.ts (conexión)
-│   │   └── env.ts               Carga .env.local antes de armar el Pool
+│   │   └── env.ts               Carga .env.local / .env antes de armar el Pool
 │   ├── lib/
 │   │   ├── sesion.ts            Cookie firmada (crear/verificar token)
 │   │   ├── password.ts          Hash y verificación de contraseñas (scrypt)
@@ -423,8 +425,8 @@ sistema1_5/
 │   │   └── sectorOtro.ts        Validación del campo "Otro"
 │   └── middleware.ts            Protección de /admin/** y /portal/** en el servidor
 ├── tests/                       Pruebas
-├── .env.example                 Plantilla de variables (sin secretos)
-└── .env.local                   Tus variables reales — NO se sube
+├── .env.example                 Plantilla de variables (sin valores reales)
+└── .env                         Tus variables reales (cp .env.example .env) — NO se sube
 ```
 
 ---
@@ -488,10 +490,11 @@ Ejemplos que trae el `seed`:
 - **El rate limiting es en memoria**: vive en el proceso del servidor (`src/lib/rateLimit.ts`), no
   en la base. Con varias instancias cada una cuenta aparte, y al reiniciar el servidor los
   contadores se ponen en cero.
-- **El correo de verificación no se envía todavía.** Falta instalar la dependencia
-  (`pnpm add nodemailer`) y configurar las variables `SMTP_*` y `CORREO_REMITENTE` en
-  `.env.local`. Sin eso, `src/lib/correo.ts` no envía nada: imprime el enlace en la consola y lo
-  devuelve en la respuesta de `/api/registro` como `enlaceVerificacion`.
+- **El correo se envía por SMTP, pero hay que configurarlo.** Complete `SMTP_HOST`, `SMTP_PORT`,
+  `SMTP_USER`, `SMTP_PASS` y `CORREO_REMITENTE` en `.env` (o en *Environment* de Dokploy). El
+  cliente SMTP está en `src/lib/smtp.ts` (sin dependencias nuevas). Pruebe las credenciales con
+  `pnpm correo:probar su-correo@gmail.com`. Sin configuración, `src/lib/correo.ts` no envía nada:
+  imprime el enlace en la consola y lo devuelve en la respuesta de `/api/registro`.
 - **Sin recuperación de contraseña.** No hay "olvidé mi contraseña" por correo. El único cambio de
   clave es manual: un admin entra a *Usuarios* → llave → *Cambiar contraseña* (exige la clave
   actual).
@@ -537,7 +540,7 @@ pg_restore -d prueba_restore /var/backups/seguit/sistitulados_ULTIMO.dump && ech
 | --------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `relation "personas" does not exist`                                  | No se aplicó el esquema                                         | `pnpm db:migrate`                                                                                     |
 | `password authentication failed for user "postgres"`                  | La clave de `.env.local` no coincide                            | Revisar `DATABASE_URL`                                                                                |
-| `DATABASE_URL no está definido`                                       | Falta `.env.local` o la variable                                | `cp .env.example .env.local` y completarla                                                            |
+| `DATABASE_URL no está definido`                                       | Falta `.env` o la variable                                | `cp .env.example .env` y completarla                                                            |
 | `SESSION_SECRET es obligatorio en producción`                         | Falta la variable                                               | Ver sección 5                                                                                         |
 | Los apellidos con `Ñ` salen desordenados                              | La BD se creó con la collation por defecto del sistema          | Recrear la BD con la collation que usa el servidor                                                    |
 | `permission denied while trying to connect to the docker API`         | El usuario no está en el grupo `docker`                         | `sudo usermod -aG docker $USER` y reiniciar sesión (sección 1.2)                                      |

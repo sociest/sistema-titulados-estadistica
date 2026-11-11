@@ -6,7 +6,7 @@ import "./src/db/env";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
-    "DATABASE_URL no está definido. Copiá .env.example a .env.local y completá la variable."
+    "DATABASE_URL no está definido. Copie .env.example a .env y complete la variable."
   );
 }
 

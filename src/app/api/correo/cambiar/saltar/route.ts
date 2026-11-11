@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
 import { and, eq, gt, sql } from "drizzle-orm";
-import { errorInterno, leerSesionVigente } from "@/lib/guards";
+import { errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +14,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     const sesion = await leerSesionVigente(req);
     if (!sesion || (sesion.rol !== "TITULADO" && sesion.rol !== "EGRESADO")) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });

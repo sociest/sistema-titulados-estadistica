@@ -72,7 +72,7 @@ export default function SolicitudesKardexPage() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-56px)] bg-slate-50 px-4 py-8 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-6">
+    <main className="min-h-[calc(100vh-76px)] px-4 py-8 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800">
           <div>
@@ -87,8 +87,8 @@ export default function SolicitudesKardexPage() {
 
         {error && <p role="alert" className="mt-5 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{error}</p>}
         {mensaje && <p role="status" className="mt-5 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{mensaje}</p>}
-        {cargando ? <p className="py-12 text-center text-base text-slate-500">Cargando solicitudes...</p> : null}
-        {!cargando && !error && solicitudes.length === 0 ? <p className="py-16 text-center text-base text-slate-500">No hay solicitudes pendientes.</p> : null}
+        {cargando ? <p className="py-12 text-center text-base text-slate-500 dark:text-slate-400">Cargando solicitudes...</p> : null}
+        {!cargando && !error && solicitudes.length === 0 ? <p className="py-16 text-center text-base text-slate-500 dark:text-slate-400">No hay solicitudes pendientes.</p> : null}
 
         <div className="mt-6 space-y-4">
           {solicitudes.map((solicitud) => (
@@ -97,7 +97,7 @@ export default function SolicitudesKardexPage() {
                 <div>
                   <h2 className="text-lg font-bold">{solicitud.nombreSolicitante}</h2>
                   <p className="mt-1 text-sm font-normal text-slate-600 dark:text-slate-300">CI {solicitud.ci} · Solicitud #{solicitud.id}</p>
-                  <p className="mt-1 text-sm font-normal text-slate-500">{new Date(solicitud.fechaSolicitud).toLocaleString("es-BO")}</p>
+                  <p className="mt-1 text-sm font-normal text-slate-500 dark:text-slate-400">{new Date(solicitud.fechaSolicitud).toLocaleString("es-BO")}</p>
                 </div>
                 <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">PENDIENTE</span>
               </div>
@@ -136,7 +136,7 @@ export default function SolicitudesKardexPage() {
                           <p className="text-xs font-medium truncate text-slate-800 dark:text-slate-200" title={documento.nombreOriginal}>
                             {documento.nombreOriginal}
                           </p>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                             {(documento.tamanoBytes / 1024 / 1024).toFixed(2)} MB
                           </p>
                           <div className="mt-2.5 flex items-center gap-2">
@@ -163,7 +163,7 @@ export default function SolicitudesKardexPage() {
                 </div>
               </div>
 
-              <label className="mt-5 block text-sm font-semibold" htmlFor={`detalle-${solicitud.id}`}>Motivo de rechazo <span className="font-normal text-slate-500">(obligatorio si rechazas)</span></label>
+              <label className="mt-5 block text-sm font-semibold" htmlFor={`detalle-${solicitud.id}`}>Motivo de rechazo <span className="font-normal text-slate-500 dark:text-slate-400">(obligatorio si rechazas)</span></label>
               <textarea id={`detalle-${solicitud.id}`} value={detalles[solicitud.id] || ""} onChange={(event) => setDetalles((current) => ({ ...current, [solicitud.id]: event.target.value }))} rows={3} maxLength={4000} className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-base font-normal dark:border-slate-700 dark:bg-slate-950" />
 
               <div className="mt-4 flex flex-wrap justify-end gap-3">

@@ -132,7 +132,7 @@ export default function AdminUsuariosPage() {
     finally { setGuardando(false); }
   };
 
-  if (authLoading) return <div className="p-8 text-sm text-slate-500">Verificando sesión…</div>;
+  if (authLoading) return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
   if (!user || user.rol !== "admin") return null;
 
   const err = (k: string) => campoError[k]?.[0];
@@ -192,7 +192,7 @@ export default function AdminUsuariosPage() {
                   <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     <td className="py-3 px-4">
                       <p className="font-semibold text-slate-900 dark:text-white">{u.nombre}</p>
-                      <p className="text-[11px] text-slate-500">{u.correo}{u.ci ? ` · CI ${u.ci}` : ""}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{u.correo}{u.ci ? ` · CI ${u.ci}` : ""}</p>
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
@@ -204,7 +204,7 @@ export default function AdminUsuariosPage() {
                         {u.estado}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-slate-500 text-[11px]">
+                    <td className="py-3 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
                       {u.ultimoAcceso ? new Date(u.ultimoAcceso).toLocaleString("es-BO") : "—"}
                     </td>
                     <td className="py-3 px-4">
@@ -251,7 +251,7 @@ export default function AdminUsuariosPage() {
                 {modal === "nuevo" ? "Nuevo usuario" : "Editar usuario"}
               </h2>
               <button onClick={() => setModal("cerrado")} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-                <X className="w-5 h-5 text-slate-500" />
+                <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
               </button>
             </div>
 
@@ -328,7 +328,7 @@ export default function AdminUsuariosPage() {
               </div>
               <h2 className="font-black text-base text-slate-900 dark:text-white">Cambiar contraseña</h2>
             </div>
-            <p className="text-xs text-slate-500 mb-4">Usuario: <b>{editando.nombre}</b> ({editando.correo})</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Usuario: <b>{editando.nombre}</b> ({editando.correo})</p>
 
             <div className="space-y-3">
               {msg && (

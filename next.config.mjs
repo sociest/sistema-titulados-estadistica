@@ -18,6 +18,8 @@
 // `eval` es una superficie de ataque real, por eso solo se permite fuera de producción.
 const esDesarrollo = process.env.NODE_ENV !== "production";
 
+// `frame-src https://www.google.com` permite el mapa incrustado del Footer.
+//
 // `connect-src https://challenges.cloudflare.com` lo necesita el widget de Turnstile:
 // sin esa entrada el script carga pero su beacon/XHR de verificación se bloquea, el
 // token nunca llega y el login espera indefinidamente.
@@ -36,10 +38,10 @@ const cabecerasSeguridad = [
       // Los estilos generados en línea por Tailwind y los estilos de Next requieren
       // 'unsafe-inline'; no se relaja ningún otro tipo de recurso.
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      "img-src 'self' data: blob: https://images.unsplash.com",
       "font-src 'self' data:",
       "connect-src 'self' https://challenges.cloudflare.com",
-      "frame-src https://challenges.cloudflare.com",
+      "frame-src https://challenges.cloudflare.com https://www.google.com",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

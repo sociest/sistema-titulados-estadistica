@@ -19,9 +19,8 @@
     "db:studio": "drizzle-kit studio",
     "seed": "tsx scripts/seed.ts",
     "seed:masivo": "tsx scripts/seed_masivo.ts",
-    "generar:datos": "python3 scripts_generar_seed.py --salida datos_prueba.csv --registros 290 --titulados 135",
-    "test": "tsx --test tests/*.test.ts",
-    "backup": "bash scripts/backup.sh"
+    "backup": "bash scripts/backup.sh",
+    "correo:probar": "tsx scripts/probar-correo.ts"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",

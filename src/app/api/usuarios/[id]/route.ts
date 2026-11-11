@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { usuarios } from "@/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdmin, errorInterno, verificarCsrf } from "@/lib/guards";
 import { leerSesionDeRequest } from "@/lib/sesion";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { registrarAuditoria } from "@/lib/auditoria";
@@ -29,6 +29,9 @@ function idInvalido(id: string) {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   const malo = idInvalido(params.id);
   if (malo) return malo;
@@ -139,6 +142,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
 
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   const malo = idInvalido(params.id);
   if (malo) return malo;
   const id = Number(params.id);
@@ -166,20 +172,22 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       }
     }
 
-    await db.update(usuarios)
-      .set({ estado: "inactivo", actualizadoEn: new Date() })
-      .where(eq(usuarios.id, id));
+    // Borrado real. Las sesiones del usuario se van en cascada (FK cascade). La auditoría es
+    // inmutable y no tiene FK a usuarios (migración 0010): conserva el id de quien actuó.
+    // La baja queda registrada con el correo y rol del eliminado.
+    await db.delete(usuarios).where(eq(usuarios.id, id));
 
     await registrarAuditoria({
       accion: "eliminar",
       entidad: "usuarios",
       entidadId: id,
       idUsuario: sesion?.sub ?? null,
-      detalles: `Usuario desactivado (baja lógica): ${actual[0]!.correo}`,
+      detalles: `Usuario eliminado: ${actual[0]!.correo}`,
       datosAnteriores: { correo: actual[0]!.correo, rol: actual[0]!.rol, estado: actual[0]!.estado },
-      datosNuevos: { correo: actual[0]!.correo, rol: actual[0]!.rol, estado: "inactivo" },
+      datosNuevos: null,
       req,
     });
+
 
     return NextResponse.json({ ok: true });
   } catch (e) {

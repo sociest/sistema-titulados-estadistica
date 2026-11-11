@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exigirAdmin, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { exigirAdmin, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { firmarDescarga } from "@/lib/descargas";
 import { enlaceDescargaSchema, primerErrorZod } from "@/lib/validaciones";
@@ -32,6 +32,9 @@ type Destino = keyof typeof DESTINOS;
 export async function POST(req: NextRequest) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   try {
     const sesion = await leerSesionVigente(req);

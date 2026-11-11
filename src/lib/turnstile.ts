@@ -17,16 +17,28 @@ export async function verificarTurnstile(
   token: string | null | undefined,
   remoteIp?: string | null
 ): Promise<{ valido: boolean; motivo?: string }> {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  const secretKey = process.env.TURNSTILE_SECRET_KEY?.trim();
 
-  // Si no está configurada la clave secreta (por ejemplo en local o desarrollo inicial sin cloudflare),
-  // se permite continuar para no romper flujos locales a menos que se fuerce.
-  if (!secretKey) {
-    if (process.env.NODE_ENV === "production") {
-      console.warn("[TURNSTILE] Clave de verificación anti-bots no configurada en producción.");
-      return { valido: false, motivo: "Configuración de seguridad incompleta en el servidor" };
-    }
+  // Cloudflare publica claves de prueba gratuitas. Se usan cuando NO hay una clave
+  // real configurada en el entorno (desarrollo local o suite de integración):
+  //   1x...  siempre pasa
+  //   2x...  siempre falla
+  //   3x...  pasa, pero exige interacción
+  // https://developers.cloudflare.com/turnstile/troubleshooting/testing/
+  if (!secretKey || secretKey.startsWith("1x") || secretKey.startsWith("3x")) {
+    console.warn(
+      secretKey
+        ? "[TURNSTILE] Clave de prueba de Cloudflare configurada: no se valida contra el servicio real."
+        : "[TURNSTILE] TURNSTILE_SECRET_KEY no definida: se usa la versión gratuita de pruebas (siempre válida)."
+    );
     return { valido: true };
+  }
+
+  if (secretKey.startsWith("2x")) {
+    return {
+      valido: false,
+      motivo: "Verificación de seguridad fallida. Por favor, intente de nuevo.",
+    };
   }
 
   if (!token || typeof token !== "string" || token.trim() === "") {

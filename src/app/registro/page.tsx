@@ -141,7 +141,7 @@ export default function PaginaRegistro() {
   }
 
   return (
-    <main className="min-h-screen px-4 py-12 bg-[var(--bg)] text-[var(--fg)]">
+    <main className="min-h-screen px-4 py-12 text-[var(--fg)]">
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <span className="w-11 h-11 rounded-xl bg-[var(--nav-bg)] flex items-center justify-center">

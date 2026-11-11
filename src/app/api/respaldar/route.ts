@@ -1,20 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import {
-  personas,
-  usuarios,
-  sesiones,
-  noticiasCursos as noticias,
-  solicitudTitulado,
-  solicitudTituladoHistorial,
-  solicitudTituladoDocumento,
-  carreras,
-  verificaciones,
-  auditLog,
-} from "@/db/schema";
 import { errorInterno, exigirAdmin } from "@/lib/guards";
 import { sql } from "drizzle-orm";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { TABLAS_RESPALDO as TABLAS, literalSql as literal } from "@/lib/backup";
 
 export const dynamic = "force-dynamic";
 
@@ -41,31 +30,9 @@ export const dynamic = "force-dynamic";
  */
 
 /**
- * Nombre real de cada tabla en PostgreSQL (coincide con el esquema Drizzle).
- * Se usa tanto para la clave JSON como para `INSERT INTO <nombre>`.
+ * La lista de tablas y el escapado SQL viven en `@/lib/backup`, para que el
+ * script `scripts/backup.sh` y esta ruta compartan la misma definición.
  */
-const TABLAS: Array<{ nombre: string; tabla: unknown }> = [
-  { nombre: "personas", tabla: personas },
-  { nombre: "carreras", tabla: carreras },
-  { nombre: "usuarios", tabla: usuarios },
-  { nombre: "sesiones", tabla: sesiones },
-  { nombre: "verificaciones", tabla: verificaciones },
-  { nombre: "noticias_cursos", tabla: noticias },
-  { nombre: "solicitudtitulado", tabla: solicitudTitulado },
-  { nombre: "solicitudtitulado_historial", tabla: solicitudTituladoHistorial },
-  { nombre: "solicitudtitulado_documentos", tabla: solicitudTituladoDocumento },
-  { nombre: "audit_log", tabla: auditLog },
-];
-
-/** Escapa un valor para una sentencia INSERT. `null` va como NULL, nunca como ''. */
-function literal(valor: unknown): string {
-  if (valor === null || valor === undefined) return "NULL";
-  if (valor instanceof Date) return `'${valor.toISOString()}'`;
-  if (typeof valor === "number") return Number.isFinite(valor) ? String(valor) : "NULL";
-  if (typeof valor === "boolean") return valor ? "true" : "false";
-  if (Buffer.isBuffer(valor)) return `'\\x${valor.toString("hex")}'`;
-  return `'${String(valor).replace(/'/g, "''")}'`;
-}
 
 export async function GET(req: NextRequest) {
   const denegado = await exigirAdmin(req);

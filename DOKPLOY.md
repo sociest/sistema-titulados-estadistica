@@ -16,7 +16,7 @@ Este documento describe la arquitectura y los pasos para desplegar el **Sistema 
    - Se añadió [docker-entrypoint.sh](file:///home/andreschirinos/Proyectos/WebSistemaTitulados_Est/docker-entrypoint.sh) y [scripts/migrate.mjs](file:///home/andreschirinos/Proyectos/WebSistemaTitulados_Est/scripts/migrate.mjs) para:
      - Esperar a que PostgreSQL esté disponible.
      - Aplicar automáticamente las migraciones Drizzle (`AUTORUN_MIGRATIONS=true`).
-     - Insertar el administrador inicial y datos base (`AUTORUN_SEED=true`).
+     - Insertar el administrador inicial y datos base (`AUTORUN_SEED=false`).
 
 ---
 
@@ -33,20 +33,30 @@ Existen dos maneras estándar de desplegar la aplicación en Dokploy:
    ```text
    docker-compose.dokploy.yml
    ```
-5. En la pestaña **Environment**, copia las variables de `.env.example` y define valores seguros:
+5. En la pestaña **Environment**, cargá las variables de `.env.example` con valores reales
+   (la plantilla solo trae los nombres; nunca subas valores reales al repositorio):
    ```env
-   NODE_ENV=production
    DB_USER=seguit_app
-   DB_PASSWORD=DEFINIR_CLAVE_SEGURA_AQUI
+   DB_PASSWORD=<openssl rand -hex 24>
    DB_NAME=sistitulados_db
-   SESSION_SECRET=DEFINIR_HEX_DE_64_CARACTERES
+   SESSION_SECRET=<openssl rand -hex 32>
    NEXT_PUBLIC_APP_URL=https://tu-dominio.umsa.bo
    SITIO_URL=https://tu-dominio.umsa.bo
-   NEXT_PUBLIC_TURNSTILE_SITE_KEY=tu_sitekey_cloudflare
-   TURNSTILE_SECRET_KEY=tu_secret_cloudflare
+   NEXT_PUBLIC_TURNSTILE_SITE_KEY=<sitekey de Cloudflare Turnstile>
+   TURNSTILE_SECRET_KEY=<secret de Cloudflare Turnstile>
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=<cuenta Gmail del sistema>
+   SMTP_PASS=<contraseña de aplicación de 16 letras, sin espacios>
+   CORREO_REMITENTE=Sistema SEGUIT <cuenta-del-sistema@gmail.com>
    AUTORUN_MIGRATIONS=true
-   AUTORUN_SEED=true
+   AUTORUN_SEED=false
    ```
+   > `NEXT_PUBLIC_*` se incrustan al **construir** la imagen: si las cambiás, hay que
+   > redesplegar con *Rebuild*, no solo reiniciar.
+
+   *Nota: el volumen `solicitudes_dokploy_storage` no se debe borrar al redesplegar, ya que contiene los datos de las solicitudes.
+   Las imágenes de noticias se guardan en `noticias_dokploy_storage` (ya montado en `/app/storage/noticias`).*
 6. En la pestaña **Domains**, agrega tu dominio (ej. `titulados.umsa.bo`):
    - **Service:** `app`
    - **Port:** `3000`
@@ -74,8 +84,13 @@ Existen dos maneras estándar de desplegar la aplicación en Dokploy:
      SITIO_URL=https://tu-dominio.umsa.bo
      NEXT_PUBLIC_TURNSTILE_SITE_KEY=tu_sitekey_cloudflare
      TURNSTILE_SECRET_KEY=tu_secret_cloudflare
+     SMTP_HOST=smtp.gmail.com
+     SMTP_PORT=587
+     SMTP_USER=<cuenta Gmail del sistema>
+     SMTP_PASS=<contraseña de aplicación>
+     CORREO_REMITENTE=Sistema SEGUIT <cuenta-del-sistema@gmail.com>
      AUTORUN_MIGRATIONS=true
-     AUTORUN_SEED=true
+     AUTORUN_SEED=false
      PORT=3000
      ```
    - En **Domains**, asigna tu dominio apuntando al puerto `3000`.
@@ -91,7 +106,7 @@ Existen dos maneras estándar de desplegar la aplicación en Dokploy:
   [entrypoint] ✓ Conexión con PostgreSQL exitosa.
   [entrypoint] Ejecutando migraciones automáticas Drizzle...
   [migrate] ✓ Migraciones aplicadas con éxito.
-  [entrypoint] AUTORUN_SEED=true: ejecutando seed inicial...
+  [entrypoint] AUTORUN_SEED=false: ejecutando seed inicial...
   ✓ Ready in ...ms
   ```
 - **Credenciales iniciales generadas por el seed:**

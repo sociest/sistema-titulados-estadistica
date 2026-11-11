@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { personas, verificaciones } from "@/db/schema";
 import { correoConfigurado, enviarCorreoRecuperacion } from "@/lib/correo";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { ipDesde } from "@/lib/auditoria";
 import { registrarIntento, verificarLimite } from "@/lib/rateLimit";
 import { verificarTurnstile } from "@/lib/turnstile";
@@ -20,6 +20,9 @@ const solicitudSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     let body: unknown;
     try {
       body = await req.json();

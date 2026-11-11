@@ -150,7 +150,7 @@ export default function AdminImportarPage() {
             ].map((c) => (
               <div key={c.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-center">
                 <p className={`text-3xl font-black ${c.color}`}>{c.valor}</p>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mt-1">{c.label}</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-1">{c.label}</p>
               </div>
             ))}
           </div>
@@ -187,7 +187,7 @@ export default function AdminImportarPage() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {resultado.detalleRechazadas.map((r, i) => (
                       <tr key={i}>
-                        <td className="py-2 px-4 text-slate-500">{r.fila || "—"}</td>
+                        <td className="py-2 px-4 text-slate-500 dark:text-slate-400">{r.fila || "—"}</td>
                         <td className="py-2 px-4 font-mono text-slate-700 dark:text-slate-300">{r.ci || "—"}</td>
                         <td className="py-2 px-4 text-red-700 dark:text-red-400">{r.motivo}</td>
                       </tr>

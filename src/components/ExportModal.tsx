@@ -94,7 +94,7 @@ const handleConfirm = () => {
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
           >
-            <X className="w-5 h-5 text-slate-500" />
+            <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
           </button>
         </div>
 
@@ -103,7 +103,7 @@ const handleConfirm = () => {
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-              <span className="ml-3 text-sm text-slate-500">Cargando datos...</span>
+              <span className="ml-3 text-sm text-slate-500 dark:text-slate-400">Cargando datos...</span>
             </div>
           ) : error ? (
             <div className="text-center py-12">
@@ -111,7 +111,7 @@ const handleConfirm = () => {
             </div>
           ) : data.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-sm text-slate-500">No hay datos para mostrar.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">No hay datos para mostrar.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

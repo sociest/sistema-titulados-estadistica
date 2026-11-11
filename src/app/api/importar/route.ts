@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
 import { sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdmin, verificarCsrf, errorInterno } from "@/lib/guards";
 import { leerSesionDeRequest } from "@/lib/sesion";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { personaAdminSchema, primerErrorZod } from "@/lib/validaciones";
@@ -63,6 +63,9 @@ function aBooleano(v: unknown): boolean {
 export async function POST(req: NextRequest) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   try {
     const form = await req.formData();

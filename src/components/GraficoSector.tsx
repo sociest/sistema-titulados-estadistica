@@ -302,10 +302,10 @@ export default function GraficoSector({
         <div className="solo-impresion sector-impresion mt-4 border-t border-slate-400 pt-3">
           <div className="tabla-impresion">
             <div className="tabla-impresion-titulo">
-              <h4 className="text-sm font-bold text-slate-900">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 Detalle de sectores laborales de opción otro
               </h4>
-              <p className="text-xs text-slate-600 mt-0.5">
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
                 {etiqueta} · {totalDetalle} {totalDetalle === 1 ? "registro" : "registros"}
               </p>
             </div>

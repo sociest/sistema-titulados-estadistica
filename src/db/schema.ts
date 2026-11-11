@@ -444,7 +444,8 @@ export const auditLog = pgTable(
   "audit_log",
   {
     id: serial("id").primaryKey(),
-    idUsuario: integer("id_usuario").references(() => usuarios.id, { onDelete: "set null" }),
+    // Sin FK a usuarios (migración 0010): el registro es inmutable y conserva el id histórico.
+    idUsuario: integer("id_usuario"),
     accion: auditAccionEnum("accion").notNull(),
     entidad: varchar("entidad", { length: 100 }).notNull(),
     entidadId: integer("entidad_id"),

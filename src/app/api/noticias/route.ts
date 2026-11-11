@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { noticiasCursos, type NuevaNoticiaCurso } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
-import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { registrarCambio } from "@/lib/auditoriaTablas";
 import { noticiaSchema, primerErrorZod } from "@/lib/validaciones";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +21,9 @@ export async function GET(req: NextRequest) {
       if (denegado) return denegado;
     }
 
-    const rows = admin
+    // Solo el ADMIN (sesión vigente) ve las ocultas; los demás roles y el público no.
+    const esAdmin = (await leerSesionVigente(req))?.rol === "admin";
+    const rows = esAdmin
       ? await db.select().from(noticiasCursos).orderBy(desc(noticiasCursos.fecha), desc(noticiasCursos.id))
       : await db
           .select()
@@ -39,6 +40,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   let crudo: unknown;
   try {
@@ -69,12 +73,16 @@ export async function POST(req: NextRequest) {
   try {
     const creada = await db.insert(noticiasCursos).values(nueva).returning();
 
-    await registrarAuditoria({
+    const sesion = await leerSesionVigente(req);
+    await registrarCambio({
+      tabla: "audit_noticias",
       accion: "crear",
-      entidad: "noticias_cursos",
       entidadId: creada[0]!.id,
-      idUsuario: await (await leerSesionDeRequest(req))?.sub ?? null,
-      detalles: `Publicación creada: "${creada[0]!.titulo}"`,
+      idUsuario: sesion?.sub ?? null,
+      rol: sesion?.rol ?? null,
+      anterior: null,
+      nuevo: creada[0],
+      cambios: [],
       req,
     });
 

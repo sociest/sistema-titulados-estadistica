@@ -1,29 +1,4 @@
 services:
-  # ── Proxy Inverso Traefik (Opcional en local con --profile proxy; NO usar en Dokploy) ─
-  traefik:
-    image: traefik:v2.11
-    container_name: sistitulados_proxy
-    profiles:
-      - proxy
-    restart: unless-stopped
-    command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
-    networks:
-      - sistitulados_net
-
-  # ── Base de Datos PostgreSQL 16 (Alpine) ───────────────────────────────
   db:
     image: postgres:16-alpine
     container_name: sistitulados_db
@@ -31,9 +6,9 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-sistitulados_db}
       POSTGRES_USER: ${DB_USER:-seguit_app}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-clave_segura_123}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD en .env - copie .env.example a .env y complete}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - ${DB_PORT:-5432}:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -50,52 +25,54 @@ services:
     networks:
       - sistitulados_net
 
-  # ── Aplicación Web Next.js (Alpine) ────────────────────────────────────
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+    image: sistitulados/app:latest
     container_name: sistitulados_app
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "${PORT:-3000}:3000"
+      - ${APP_HOST_PORT:-3001}:3000
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${DB_USER:-seguit_app}:${DB_PASSWORD:-clave_segura_123}@db:5432/${DB_NAME:-sistitulados_db}
-      SESSION_SECRET: ${SESSION_SECRET:-secreto_super_seguro_cambiar_en_produccion_64caracteres}
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
-      SITIO_URL: ${SITIO_URL:-http://localhost:3000}
-      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-1x00000000000000000000AA}
-      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-1x0000000000000000000000000000000AA}
+      DATABASE_URL: postgresql://${DB_USER:-seguit_app}:${DB_PASSWORD:?Falta DB_PASSWORD en .env - copie .env.example a .env y complete}@db:5432/${DB_NAME:-sistitulados_db}
+      SESSION_SECRET: ${SESSION_SECRET:?Falta SESSION_SECRET en .env - copie .env.example a .env y complete}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+      SITIO_URL: ${SITIO_URL:-http://localhost:3001}
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       AUTORUN_MIGRATIONS: ${AUTORUN_MIGRATIONS:-true}
-      AUTORUN_SEED: ${AUTORUN_SEED:-true}
+      AUTORUN_SEED: ${AUTORUN_SEED:-false}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-}
+      KARDEX_SEED_EMAIL: ${KARDEX_SEED_EMAIL:-}
+      KARDEX_SEED_PASSWORD: ${KARDEX_SEED_PASSWORD:-}
       TZ: America/La_Paz
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.app.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.app.entrypoints=web"
-      - "traefik.http.services.app.loadbalancer.server.port=3000"
-      - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-Frame-Options=DENY"
-      - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-Content-Type-Options=nosniff"
-      - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-XSS-Protection=1; mode=block"
-      - "traefik.http.middlewares.security-headers.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
-      - "traefik.http.routers.app.middlewares=security-headers"
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 512M
+    volumes:
+      - solicitudes_storage:/app/storage/solicitudes
+      - noticias_storage:/app/storage/noticias
     networks:
       - sistitulados_net
 
 volumes:
   postgres_data:
-    driver: local
+    name: ${PG_VOLUME_NAME:-sistitulados_postgres_data}
+  solicitudes_storage: {}
 
+  noticias_storage: {}
 networks:
   sistitulados_net:
     driver: bridge

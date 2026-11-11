@@ -6,8 +6,8 @@
  * `localhost` + el puerto publicado. Editar `.env.local` a mano cada vez que se cambia
  * de escenario es la fuente clásica de "funciona pero apunta a la BD equivocada".
  *
- * Las credenciales salen de `docker-compose.yml` (son las mismas que el servicio `db`
- * usa para inicializarse), así que no pueden desincronizarse.
+ * Las credenciales salen de `.env`, el mismo archivo que lee `docker compose` para
+ * inicializar el servicio `db`, así que no pueden desincronizarse.
  *
  * Imprime SOLO la URL por stdout (y un aviso por stderr), pensado para inyectarse:
  *   export DATABASE_URL=$(node scripts/db-url.mjs)
@@ -38,9 +38,19 @@ const valorCompose = (clave, porDefecto) => {
   return m ? m[1].trim() : porDefecto;
 };
 
-const user = valorCompose("DB_USER", "seguit_app");
-const password = valorCompose("DB_PASSWORD", "clave_segura_123");
-const dbName = valorCompose("DB_NAME", "sistitulados_db");
+// Usuario y nombre de BD no son secretos: .env manda y el compose aporta el valor por defecto.
+// La contraseña NO tiene valor por defecto: tiene que estar en .env (cp .env.example .env).
+const delEnv = (clave) =>
+  leerEnv(path.join(raiz, ".env"), clave) || leerEnv(path.join(raiz, ".env.local"), clave);
+
+const user = delEnv("DB_USER") || valorCompose("DB_USER", "seguit_app");
+const password = delEnv("DB_PASSWORD");
+const dbName = delEnv("DB_NAME") || valorCompose("DB_NAME", "sistitulados_db");
+
+if (!password) {
+  console.error("[db-url] Falta DB_PASSWORD en .env. Copie .env.example a .env y complete la contraseña.");
+  process.exit(1);
+}
 
 // El puerto publicado es el que está en `.env` (DB_PORT), no el 5432 interno del contenedor.
 const puerto =

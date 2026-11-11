@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import {
   personaRegistroPublicoSchema,
@@ -43,6 +43,9 @@ function sinConsentimiento(datos: PersonaRegistroPublicoInput) {
 
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     // ── Límite de intentos ──────────────────────────────────────────────────────
     // Sin cuenta contra la que contar, el contador es por IP. Si se llegara a colar
     // una cédula ajena, el alta quedaría PENDIENTE y sin verificar, es decir inútil.

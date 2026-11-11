@@ -44,7 +44,7 @@ services:
       # con los que ahí se usan, o la conexión falla.
       POSTGRES_DB: ${DB_NAME:-sistitulados_db}
       POSTGRES_USER: ${DB_USER:-seguit_app}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-clave_segura_123}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD en .env - copie .env.example a .env y complete}
     ports:
       - "${DB_PORT:-5433}:5432"
     volumes:

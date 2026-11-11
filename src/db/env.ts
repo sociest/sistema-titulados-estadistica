@@ -21,6 +21,7 @@ import * as path from "node:path";
 
 const raiz = process.cwd();
 
+// Orden de prioridad: .env.local > .env.<NODE_ENV> > .env (la plantilla es `.env.example`).
 for (const archivo of [".env.local", `.env.${process.env.NODE_ENV || "development"}`, ".env"]) {
   const ruta = path.join(raiz, archivo);
 

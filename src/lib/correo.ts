@@ -1,16 +1,23 @@
 /**
- * Envío de correo (Resend gratuito o SMTP).
+ * Envío de correo por SMTP.
  *
- * El adaptador prioriza Resend (HTTP, sin dependencia adicional) y conserva SMTP:
+ * Toda la configuración sale de variables de entorno (ver `.env.example`):
  *
- *   1. Con `RESEND_API_KEY` y `RESEND_FROM`, envía mediante la API de Resend.
- *   2. Con SMTP configurado, envía mediante Nodemailer.
- *   3. Sin proveedor, NO simula un envío: escribe el enlace de verificación en el log y
- *      devuelve `enviado: false` con el enlace, para que el flujo se pueda probar y
- *      auditar. En producción esto debería considerarse un fallo de configuración.
+ *   SMTP_HOST         servidor (p. ej. smtp-relay.brevo.com o smtp.gmail.com)
+ *   SMTP_PORT         587 (STARTTLS, por defecto) o 465 (TLS implícito)
+ *   SMTP_SECURE       "true" solo para TLS implícito; si se omite, es true únicamente con el 465
+ *   SMTP_USER         usuario de autenticación SMTP
+ *   SMTP_PASS         contraseña / clave SMTP / contraseña de aplicación
+ *   CORREO_REMITENTE  cabecera From: "Sistema SEGUIT <correo@dominio>"
+ *
+ * Sin `SMTP_HOST` y `CORREO_REMITENTE` NO se simula un envío: se deja el enlace en el log
+ * y se devuelve `enviado: false`, para poder probar el flujo en local. En producción eso
+ * debe tratarse como un fallo de configuración.
  *
  * `SITIO_URL` es la base pública (http://localhost:3000 en desarrollo) de los enlaces.
  */
+
+import { enviarPorSmtp, type OpcionesSmtp } from "@/lib/smtp";
 
 export type ResultadoEnvio = {
   enviado: boolean;
@@ -35,17 +42,30 @@ export function enlaceDeRecuperacion(token: string): string {
   return `${sitioUrl()}/recuperar?token=${token}`;
 }
 
+type ConfigSmtp = { opciones: OpcionesSmtp; remitente: string };
+
+function configuracionSmtp(): ConfigSmtp | null {
+  const host = process.env.SMTP_HOST?.trim();
+  const user = process.env.SMTP_USER?.trim() || undefined;
+  const remitente = (process.env.CORREO_REMITENTE?.trim() || user || "").trim();
+  if (!host || !remitente) return null;
+
+  const port = Number(process.env.SMTP_PORT?.trim() || 587);
+  const secure = process.env.SMTP_SECURE?.trim()
+    ? process.env.SMTP_SECURE.trim().toLowerCase() === "true"
+    : port === 465;
+
+  // Con usuario, la contraseña es obligatoria: un SMTP a medio configurar es un error, no un envío.
+  if (user && !process.env.SMTP_PASS) return null;
+
+  return {
+    opciones: { host, port, secure, user, pass: process.env.SMTP_PASS },
+    remitente,
+  };
+}
+
 export function correoConfigurado(): boolean {
-  const haySendGrid = Boolean(
-    process.env.SENDGRID_API_KEY &&
-      (process.env.SENDGRID_FROM || process.env.CORREO_REMITENTE)
-  );
-  const hayResend = Boolean(
-    process.env.RESEND_API_KEY &&
-      (process.env.RESEND_FROM || process.env.CORREO_REMITENTE)
-  );
-  const haySmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-  return haySendGrid || hayResend || haySmtp;
+  return configuracionSmtp() !== null;
 }
 
 async function enviarCorreo(params: {
@@ -54,86 +74,34 @@ async function enviarCorreo(params: {
   html: string;
   texto: string;
 }): Promise<ResultadoEnvio> {
-  const sendGridKey = process.env.SENDGRID_API_KEY;
-  const remitenteSendGrid = process.env.SENDGRID_FROM ?? process.env.CORREO_REMITENTE;
+  const config = configuracionSmtp();
+  if (!config) return { enviado: false, motivo: "SMTP_NO_CONFIGURADO" };
 
-  if (sendGridKey && remitenteSendGrid) {
-    try {
-      const sgMail = await import("@sendgrid/mail");
-      sgMail.default.setApiKey(sendGridKey);
-      await sgMail.default.send({
-        to: params.destino,
-        from: remitenteSendGrid,
-        subject: params.asunto,
-        html: params.html,
-        text: params.texto,
-      });
-      return { enviado: true };
-    } catch (e) {
-      console.error("[correo] falló el envío con SendGrid:", e);
-      return { enviado: false, motivo: "ERROR_DE_ENVIO" };
-    }
+  try {
+    await enviarPorSmtp(config.opciones, {
+      from: config.remitente,
+      to: params.destino,
+      subject: params.asunto,
+      html: params.html,
+      text: params.texto,
+    });
+    return { enviado: true };
+  } catch (e) {
+    // El mensaje de error nunca incluye la contraseña (ver smtp.ts).
+    console.error(`[correo] falló el envío SMTP (${config.opciones.host}:${config.opciones.port}):`, e instanceof Error ? e.message : e);
+    return { enviado: false, motivo: "ERROR_DE_ENVIO" };
   }
+}
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const remitenteResend = process.env.RESEND_FROM ?? process.env.CORREO_REMITENTE;
-
-  if (apiKey && remitenteResend) {
-    try {
-      const respuesta = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: remitenteResend,
-          to: [params.destino],
-          subject: params.asunto,
-          html: params.html,
-          text: params.texto,
-        }),
-      });
-
-      if (!respuesta.ok) {
-        console.error(`[correo] Resend rechazó el envío (HTTP ${respuesta.status}).`);
-        return { enviado: false, motivo: "ERROR_DE_ENVIO" };
-      }
-      return { enviado: true };
-    } catch (e) {
-      console.error("[correo] falló el envío con Resend:", e);
-      return { enviado: false, motivo: "ERROR_DE_ENVIO" };
-    }
-  }
-
-  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    try {
-      const especificador = "nodemail" + "er";
-      const { createTransport } = (await import(/* webpackIgnore: true */ especificador)) as {
-        createTransport: (opciones: unknown) => { sendMail: (msg: unknown) => Promise<unknown> };
-      };
-      const transporte = createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT ?? 587),
-        secure: process.env.SMTP_SECURE === "true",
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      });
-
-      await transporte.sendMail({
-        from: process.env.CORREO_REMITENTE ?? process.env.SMTP_USER,
-        to: params.destino,
-        subject: params.asunto,
-        html: params.html,
-        text: params.texto,
-      });
-      return { enviado: true };
-    } catch (e) {
-      console.error("[correo] falló el envío SMTP:", e);
-      return { enviado: false, motivo: "ERROR_DE_ENVIO" };
-    }
-  }
-
-  return { enviado: false, motivo: "SMTP_NO_CONFIGURADO" };
+/** Correo de prueba para validar credenciales: `pnpm correo:probar tu@correo.com`. */
+export async function enviarCorreoPrueba(destino: string): Promise<ResultadoEnvio> {
+  const asunto = "Prueba de correo — Sistema SEGUIT";
+  const texto = "Si recibe este mensaje, el envío SMTP del Sistema SEGUIT funciona correctamente.";
+  const html = `<div style="font-family:system-ui,sans-serif;max-width:560px">
+      <h2>Prueba de correo — Sistema SEGUIT</h2>
+      <p>${texto}</p>
+    </div>`;
+  return enviarCorreo({ destino, asunto, html, texto });
 }
 
 function escaparHtml(valor: string): string {
@@ -241,5 +209,33 @@ export async function enviarCorreoVerificacion(params: {
     return { enviado: false, motivo: "SMTP_NO_CONFIGURADO" };
   }
 
+  return enviarCorreo({ destino: params.destino, asunto, html, texto });
+}
+/**
+ * Aviso al egresado cuando Kardex acepta su solicitud de titulación. Se envía después de
+ * que el cambio ya quedó guardado: si el correo falla, la aceptación no se revierte.
+ */
+export async function enviarCorreoTitulado(params: {
+  destino: string;
+  nombre: string;
+}): Promise<ResultadoEnvio> {
+  const asunto = "Su solicitud de titulación fue aceptada — Carrera de Estadística";
+  const nombre = escaparHtml(params.nombre || "");
+  const texto =
+    `Estimado/a ${params.nombre || ""}:\n\n` +
+    "Su solicitud de titulación fue aceptada por Kardex. Su registro en el Sistema de Seguimiento " +
+    "a Titulados ya figura como TITULADO.\n\n" +
+    "Carrera de Estadística · UMSA";
+  const html = `<div style="font-family:system-ui,sans-serif;max-width:560px">
+      <h2>Solicitud de titulación aceptada</h2>
+      <p>Estimado/a ${nombre}:</p>
+      <p>Su solicitud de titulación fue aceptada por Kardex. Su registro en el Sistema de Seguimiento
+      a Titulados ya figura como <strong>TITULADO</strong>.</p>
+      <p style="color:#64748b;font-size:12px">Carrera de Estadística · UMSA</p>
+    </div>`;
+  if (!correoConfigurado()) {
+    console.warn(`[correo] SMTP no configurado. No se envió el aviso de titulación a ${params.destino}.`);
+    return { enviado: false, motivo: "SMTP_NO_CONFIGURADO" };
+  }
   return enviarCorreo({ destino: params.destino, asunto, html, texto });
 }

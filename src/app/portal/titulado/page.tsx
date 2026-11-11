@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { validarSectorOtro } from "@/lib/sectorOtro";
 import AvisoProteccionDatos from "@/components/AvisoProteccionDatos";
-import { VERSION_AVISO_PRIVACIDAD as VERSION_AVISO } from "@/lib/validaciones";
 
 type CarreraForm = { carrera?: string; universidad?: string; facultad?: string; grados?: string };
 const CAMPOS_CARRERA = [
@@ -20,8 +19,6 @@ export default function TituladoPortal() {
   const [data, setData] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   // Consentimiento expreso: sin marcar esta casilla el servidor rechaza el guardado.
-  const [acepta, setAcepta] = useState(false);
-  const [msgConsentimiento, setMsgConsentimiento] = useState("");
   const [msg, setMsg] = useState("");
   const [sector, setSector] = useState<string>("");
   const [otroSector, setOtroSector] = useState<string>("");
@@ -68,15 +65,11 @@ export default function TituladoPortal() {
 
   const onSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!acepta) { setMsgConsentimiento("Debe aceptar el aviso de privacidad para guardar sus datos"); return; }
-    setMsgConsentimiento("");
     const fd = new FormData(e.currentTarget);
     const payload: any = {};
     ["correoElectronico","telefono","redesSociales","ciudadRegionTrabajo","estadoLaboral","sectorTrabajo","ocupacionCargo","observaciones","tiempoInsercionLaboralMeses"].forEach(k=> payload[k]=fd.get(k));
     // El sector "--" (vacío) no debe bloquear el guardado: se envía como null.
     if (payload.sectorTrabajo === "") payload.sectorTrabajo = null;
-    payload.consentimientoPrivacidad = true;
-    payload.versionAvisoPrivacidad = VERSION_AVISO;
     payload.trabajaEnEstadistica = fd.get("trabajaEnEstadistica")==="SI";
     payload.nivelEstudio = nivelEstudio || null;
     payload.realizoCursoUltimos3Anos = cursoReciente === "" ? null : cursoReciente === "SI";
@@ -137,7 +130,7 @@ export default function TituladoPortal() {
 
   const input = "w-full mt-1 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
   const lbl = "text-xs font-bold text-slate-700 dark:text-slate-300";
-  const K = "bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-700";
+  const K = "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed border-slate-200 dark:border-slate-700";
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-4">
       <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 rounded-xl p-3 text-xs"><b>Formulario Titulado</b></div>
@@ -235,25 +228,7 @@ export default function TituladoPortal() {
           <label className="text-xs font-bold sm:col-span-2 text-slate-700 dark:text-slate-300">Ayudanos con tus sugerencias y observaciones sobre la pagina<textarea name="observaciones" defaultValue={data.observaciones||""} rows={3} className={input} /></label>
         </div>
         {msg && <div className="text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 rounded-lg px-3 py-2">{msg}</div>}
-          <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4 cursor-pointer sm:col-span-2">
-            <input
-              type="checkbox"
-              name="consentimientoPrivacidad"
-              required
-              checked={acepta}
-              onChange={(e) => setAcepta(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-blue-800"
-            />
-            <span className="text-xs leading-relaxed">
-              He leido el <strong className="font-bold">aviso de privacidad</strong> y
-              acepto el tratamiento de mis datos para los fines indicados en el Art. 5
-              de la Ley N. 1405. Entiendo que puedo retirar este consentimiento en
-              cualquier momento.
-              {msgConsentimiento && (
-                <span className="block mt-1 font-semibold text-red-600">{msgConsentimiento}</span>
-              )}
-            </span>
-          </label>
+          
         <button disabled={saving} className="w-full bg-blue-900 hover:bg-blue-800 text-white rounded-xl py-2.5 font-bold disabled:opacity-50">{saving?"Guardando...":"Guardar cambios"}</button>
       </form>
     </div>

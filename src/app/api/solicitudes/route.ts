@@ -5,7 +5,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas, solicitudTitulado, solicitudTituladoDocumento, solicitudTituladoHistorial } from "@/db/schema";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 
@@ -54,6 +54,10 @@ export async function POST(req: NextRequest) {
   const sesion = await leerSesionVigente(req);
   if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   if (sesion.rol !== "EGRESADO") return NextResponse.json({ error: "Solo egresados pueden enviar esta solicitud" }, { status: 403 });
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   const contentLength = Number(req.headers.get("content-length") ?? 0);
   if (contentLength > MAX_ARCHIVOS * MAX_BYTES + 1024 * 1024) {
     return NextResponse.json({ error: "El envío supera el tamaño máximo permitido" }, { status: 413 });

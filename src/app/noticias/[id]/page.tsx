@@ -36,7 +36,7 @@ export default function NoticiaDetallePage() {
   }, [id]);
 
   return (
-    <div className="min-h-screen bg-[#f1f5f9] dark:bg-slate-950">
+    <div className="min-h-screen dark:bg-slate-950">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <button
           onClick={() => router.back()}
@@ -57,7 +57,7 @@ export default function NoticiaDetallePage() {
               <Info className="w-7 h-7" />
             </div>
             <p className="mt-3 text-sm font-bold text-slate-800 dark:text-slate-200">Publicación no disponible</p>
-            <p className="text-xs text-slate-500 mt-1">{err}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{err}</p>
           </div>
         )}
 
@@ -65,7 +65,7 @@ export default function NoticiaDetallePage() {
           <article className="mt-8">
             {/* Imagen central */}
             {n.imagenUrl ? (
-              <div className="rounded-3xl overflow-hidden shadow-lg border border-slate-200 dark:border-slate-700 bg-white">
+              <div className="rounded-3xl overflow-hidden shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
                 <img src={n.imagenUrl} alt={n.titulo} className="w-full max-h-[440px] object-cover" />
               </div>
             ) : (

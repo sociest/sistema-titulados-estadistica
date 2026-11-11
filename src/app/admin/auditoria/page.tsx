@@ -81,7 +81,7 @@ export default function AdminAuditoriaPage() {
 
   useEffect(() => { if (user?.rol === "admin") cargar(); }, [user, cargar]);
 
-  if (authLoading) return <div className="p-8 text-sm text-slate-500">Verificando sesión…</div>;
+  if (authLoading) return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
   if (!user || user.rol !== "admin") return null;
 
   return (
@@ -119,7 +119,7 @@ export default function AdminAuditoriaPage() {
         <input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPagina(1); }} className={inp} title="Hasta" />
         {(desde || hasta || accion !== "TODOS" || entidad !== "TODAS") && (
           <button onClick={() => { setAccion("TODOS"); setEntidad("TODAS"); setDesde(""); setHasta(""); setPagina(1); }}
-            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="w-3.5 h-3.5" /> Limpiar
           </button>
         )}
@@ -192,7 +192,7 @@ export default function AdminAuditoriaPage() {
 
         {paginas > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-500">Página {pagina} de {paginas} · {total} operaciones</span>
+            <span className="text-slate-500 dark:text-slate-400">Página {pagina} de {paginas} · {total} operaciones</span>
             <div className="flex gap-2">
               <button disabled={pagina <= 1} onClick={() => setPagina((p) => p - 1)}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800">Anterior</button>

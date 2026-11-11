@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { personas, verificaciones } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdmin, errorInterno, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { leerSesionDeRequest } from "@/lib/sesion";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
@@ -47,6 +47,9 @@ const cuerpoDecision = z
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   const n = Number(params.id);
   if (!Number.isInteger(n) || n <= 0) {

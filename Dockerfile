@@ -18,6 +18,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 
+# Las variables NEXT_PUBLIC_* se incrustan en el bundle del navegador durante `next build`;
+# en runtime ya no se pueden cambiar. Por eso llegan como argumentos de build.
+ARG NEXT_PUBLIC_APP_URL=""
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=""
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
 RUN pnpm build
 
 # 4. Imagen final de ejecución (Runner)
@@ -50,6 +57,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/src ./src
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
+
+# Los directorios deben existir ANTES de montar los volúmenes: si no, Docker los crea como
+# root y el usuario `nextjs` no puede escribir (subida de imágenes de noticias, solicitudes).
+RUN mkdir -p /app/storage/solicitudes /app/storage/noticias && chown -R nextjs:nodejs /app/storage
 
 USER nextjs
 

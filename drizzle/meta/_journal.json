@@ -64,6 +64,20 @@
       "when": 1792671264388,
       "tag": "0008_add_imagen_url_personas",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792671264389,
+      "tag": "0009_auditoria_por_tabla",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792671264390,
+      "tag": "0010_audit_log_sin_fk_usuario",
+      "breakpoints": true
     }
   ]
 }

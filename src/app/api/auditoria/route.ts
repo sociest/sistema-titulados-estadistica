@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
       pagina,
       paginas: Math.max(1, Math.ceil(total / perPage)),
       entidades: entidades.map((x) => x.e),
-    });
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (e) {
     return errorInterno(e, "api/auditoria");
   }

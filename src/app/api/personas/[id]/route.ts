@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas, auditLog } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdmin, errorInterno, verificarCsrf } from "@/lib/guards";
 import { leerSesionDeRequest } from "@/lib/sesion";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
@@ -61,6 +61,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (malo) return malo;
   const n = Number(params.id);
 
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   const actual = await db.select().from(personas).where(eq(personas.id, n)).limit(1);
   if (!actual.length) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
@@ -92,6 +95,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   const malo = idInvalido(params.id);
   if (malo) return malo;

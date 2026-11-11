@@ -1,12 +1,17 @@
-import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db";
 import { usuarios } from "../src/db/schema";
 import { hashPassword } from "../src/lib/password";
 
-const CORREO_KARDEX = (process.env.KARDEX_SEED_EMAIL || "kardex@umsa.bo").trim().toLowerCase();
+// Sin valor por defecto: el correo sale solo de KARDEX_SEED_EMAIL (se lee al ejecutar, no al
+// importar). No se crea ninguna cuenta Kardex "de fábrica" (antes se creaba kardex@umsa.bo).
 
 export async function asegurarCuentaKardex(): Promise<{ correo: string; password: string } | null> {
+  const CORREO_KARDEX = (process.env.KARDEX_SEED_EMAIL || "").trim().toLowerCase();
+  if (!CORREO_KARDEX) {
+    console.warn("[seed] KARDEX_SEED_EMAIL no está definida: no se crea usuario Kardex.");
+    return null;
+  }
   const existente = await db
     .select({ rol: usuarios.rol })
     .from(usuarios)
@@ -20,10 +25,13 @@ export async function asegurarCuentaKardex(): Promise<{ correo: string; password
     return null;
   }
 
-  const password = process.env.KARDEX_SEED_PASSWORD || randomBytes(24).toString("base64url");
-  // "krd" es la contraseña definida para el usuario Kardex (ver credenciales.txt)
-  // Se permite de 3 caracteres minimum para este usuario especial
-  if (password.length < 3) throw new Error("KARDEX_SEED_PASSWORD debe tener al menos 3 caracteres.");
+  const password = process.env.KARDEX_SEED_PASSWORD;
+  // Sin KARDEX_SEED_PASSWORD en el entorno no se crea la cuenta: no hay contraseña por defecto.
+  if (!password) {
+    console.warn("[seed] KARDEX_SEED_PASSWORD no está definida en .env: no se crea el usuario Kardex.");
+    return null;
+  }
+  if (password.length < 8) throw new Error("KARDEX_SEED_PASSWORD debe tener al menos 8 caracteres.");
 
   const [creada] = await db
     .insert(usuarios)

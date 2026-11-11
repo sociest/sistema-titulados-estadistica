@@ -5,15 +5,11 @@ import VolverSeguimiento from "@/components/VolverSeguimiento";
 
 export default function KpisTituladosPage() {
   return (
-    <div className="min-h-[calc(100vh-56px)] bg-[#f1f5f9] dark:bg-slate-950">
+    <div className="min-h-[calc(100vh-76px)] dark:bg-slate-950">
       <section className="bg-gradient-to-br text-white relative overflow-hidden" style={{ backgroundImage: `linear-gradient(to bottom right, var(--hero-from), var(--hero-via), #0f172a)` }}>
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.08),transparent_50%)]" />
         <div className="max-w-7xl mx-auto px-6 py-8 lg:py-10 relative">
           <VolverSeguimiento className="inline-flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-xl bg-white/15 text-white border border-white/25 backdrop-blur hover:bg-white hover:text-[var(--hero-from)] shadow-sm transition mb-6" />
-          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur rounded-full px-3 py-1 text-xs font-bold tracking-wider">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            KPI · CARRERA DE ESTADÍSTICA · UMSA
-          </div>
           <h1 className="mt-5 text-3xl lg:text-4xl font-black leading-tight flex items-center gap-3">
             <span className="w-12 h-12 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center"><GraduationCap className="w-7 h-7" /></span>
             Indicadores de <span className="text-amber-300">Titulados</span>

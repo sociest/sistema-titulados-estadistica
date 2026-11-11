@@ -4,7 +4,7 @@ import { personas, credencialesPersona } from "@/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { registrarAuditoria, ipDesde } from "@/lib/auditoria";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { verificarLimite, registrarIntento, limpiarIntentos } from "@/lib/rateLimit";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
 import { z } from "zod";
@@ -29,6 +29,9 @@ const cuerpoSchema = z.object({
  */
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     let body: unknown;
     try {
       body = await req.json();

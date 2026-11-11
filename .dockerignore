@@ -1,7 +1,9 @@
 node_modules
 .next
 .git
-.env*.local
+.env
+.env.*
+!.env.example
 *.dump
 *.sql.gz
 *.csv
@@ -14,3 +16,5 @@ yarn-debug.log*
 pnpm-debug.log*
 zprob.md
 *.md
+C:*
+*\\*

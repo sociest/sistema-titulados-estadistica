@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { usuarios } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { registrarAuditoria, ipDesde } from "@/lib/auditoria";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import {
   DURACION_SESION_MS,
   NOMBRE_COOKIE,
@@ -95,6 +95,9 @@ async function exigirCierreSinCuerpo(req: NextRequest): Promise<void> {
 
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     await exigirCierreSinCuerpo(req);
     const token = tokenDeRequest(req);
 

@@ -108,7 +108,7 @@ export default function CambiarCorreoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen dark:bg-slate-950 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-sm">
         <div className="flex items-center gap-3 mb-6">
           <Mail className="w-7 h-7 text-blue-800 dark:text-blue-400" />

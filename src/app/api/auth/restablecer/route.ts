@@ -4,7 +4,7 @@ import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { credencialesPersona, personas, verificaciones } from "@/db/schema";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { ipDesde, registrarAuditoria } from "@/lib/auditoria";
 import { hashPassword } from "@/lib/password";
 import { registrarIntento, verificarLimite } from "@/lib/rateLimit";
@@ -19,6 +19,9 @@ const restablecerSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const denegadoCsrf = await verificarCsrf(req);
+    if (denegadoCsrf) return denegadoCsrf;
+
     let body: unknown;
     try {
       body = await req.json();

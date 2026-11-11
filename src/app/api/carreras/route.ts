@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { carreras } from "@/db/schema";
-import { exigirAdminOContacto, errorInterno } from "@/lib/guards";
+import { exigirAdminOContacto, errorInterno, verificarCsrf } from "@/lib/guards";
 import { leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 
@@ -46,6 +46,9 @@ export async function PUT(req: NextRequest) {
   if (!ciValido.test(ci)) return NextResponse.json({ error: "CI numérico requerido" }, { status: 400 });
   const denegado = await validarAcceso(req, ci);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   let body: unknown;
   try {

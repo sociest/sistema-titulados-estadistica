@@ -13,7 +13,9 @@ export default function Navbar() {
   const [palette, setPalette] = useState<Palette>("dis1");
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const [salidaAbierta, setSalidaAbierta] = useState(false);
+  const [saliendo, setSaliendo] = useState(false);
   const { volverSeguimiento, pedir, overlay } = useCierreSesion();
   const isEstadistica = pathname === "/";
   const isTitulados = pathname === "/titulados" || pathname.startsWith("/titulados") || pathname.startsWith("/kpis/");
@@ -71,12 +73,25 @@ export default function Navbar() {
     }
   };
 
+  // Botón de rol: lleva al dashboard del usuario que inició sesión.
+  const rutaRol =
+    user?.rol === "admin" ? "/admin/dashboard"
+    : user?.rol === "KARDEX" ? "/kardex/solicitudes"
+    : user?.rol === "TITULADO" ? "/portal/titulado"
+    : "/portal/egresado";
+  const etiquetaRol =
+    user?.rol === "admin" ? "Admin"
+    : user?.rol === "KARDEX" ? "Kardex"
+    : user?.rol === "TITULADO" ? "Titulado"
+    : "Egresado";
+
   const menuItems = [
-    { label: "Inicio", href: "/", active: isEstadistica },
+    // Inicio sale del portal. Con sesión abierta se pide confirmación antes de cerrarla.
+    { label: "Inicio", href: "https://estadistica.umsa.bo/", active: false, externo: true },
     { label: "Seguimiento", href: "/titulados", active: pathname === "/titulados" },
     { label: "Indicadores", href: "/kpis/titulados", active: pathname.startsWith("/kpis/") },
     { label: "Noticias", href: "/titulados#noticias", active: false },
-    ...(user?.rol === "KARDEX" ? [{ label: "Solicitudes", href: "/kardex/solicitudes", active: pathname.startsWith("/kardex") }] : []),
+    ...(user ? [{ label: etiquetaRol, href: rutaRol, active: pathname.startsWith(rutaRol), externo: false }] : []),
   ];
 
   const leyendaSeguimiento = !user
@@ -99,15 +114,22 @@ export default function Navbar() {
           : "Kardex"
     : "Sistema";
 
+  const manejarItem = (e: React.MouseEvent, item: { externo?: boolean }) => {
+    if (item.externo && user) {
+      e.preventDefault();
+      setSalidaAbierta(true);
+    }
+  };
+
   return (
     <>
       {/* Espacio reservado para el navbar fijo (se mantiene visible al deslizar) */}
-      <div className="h-[56px] w-full" aria-hidden="true" data-nav-espaciador />
-      <nav data-navbar className="fixed top-0 inset-x-0 z-50 h-[56px] w-full border-b text-white" style={{ backgroundColor: "var(--nav-bg)", borderColor: "var(--nav-border)" }}>
+      <div className="h-[76px] w-full" aria-hidden="true" data-nav-espaciador />
+      <nav data-navbar className="fixed top-0 inset-x-0 z-50 h-[76px] w-full border-b text-white" style={{ backgroundColor: "var(--nav-bg)", borderColor: "var(--nav-border)" }}>
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-[56px] gap-2">
+        <div className="flex items-center justify-between h-[76px] gap-2">
           <Link href="/titulados" className="flex items-center gap-3 shrink-0 min-w-0">
-            <div className="w-10 h-10 flex items-center justify-center shadow-sm shrink-0 p-1 overflow-hidden">
+            <div className="w-16 h-16 flex items-center justify-center shadow-sm shrink-0 p-1 overflow-hidden">
               <img src="/2png/logo-seguimiento.png" alt="Símbolo de Seguimiento a Titulados" className="w-full h-full object-contain" />
             </div>
             <div className="leading-tight hidden md:block">
@@ -123,6 +145,7 @@ export default function Navbar() {
                 <li key={item.label}>
                   <Link
                     href={item.href}
+                    onClick={(e) => manejarItem(e, item)}
                     className={`px-2 xl:px-2.5 py-2 text-sm xl:text-[15px] font-normal tracking-wide rounded-lg transition whitespace-nowrap ${
                       item.active
                         ? "bg-white/15 text-white"
@@ -180,6 +203,7 @@ export default function Navbar() {
                 <li key={item.label}>
                   <Link
                     href={item.href}
+                    onClick={(e) => manejarItem(e, item)}
                     className={`block px-3 py-3 rounded-xl text-[17px] font-normal transition ${item.active ? "bg-white text-[var(--nav-bg)]" : "text-white hover:bg-white/10"}`}
                   >
                     {item.label}
@@ -206,6 +230,27 @@ export default function Navbar() {
       )}
       </nav>
 
+      {salidaAbierta && (
+        <div className="fixed inset-0 z-[130] bg-black/50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h2 className="font-black text-lg">¿Cerrar sesión para continuar?</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Saldrá del sistema de seguimiento y será llevado al sitio oficial de la Carrera.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setSalidaAbierta(false)} disabled={saliendo} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 font-bold text-sm">No, quedarme</button>
+              <button
+                disabled={saliendo}
+                onClick={async () => {
+                  setSaliendo(true);
+                  try { await logout(); } finally { window.location.href = "https://estadistica.umsa.bo/"; }
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm disabled:opacity-50"
+              >
+                {saliendo ? "Cerrando…" : "Sí, cerrar sesión"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {overlay}
     </>
   );

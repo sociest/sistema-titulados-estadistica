@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { personas, solicitudTituladoHistorial, carreras, credencialesPersona, sesiones } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdminOContacto, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { exigirAdminOContacto, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { supresionDatosSchema, primerErrorZod } from "@/lib/validaciones";
 
@@ -33,9 +33,29 @@ export async function GET(req: NextRequest) {
   const sesion = await leerSesionVigente(req);
   if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
 
+  // El rol "KARDEX" (y cualquier rol sin ficha de persona asociada) no tiene derecho
+  // de acceso/portabilidad porque no es titular de un registro. Se devuelve 403 y no
+  // 400, para distinguirlo de una petición mal formada.
+  // Si es administrador sin ?ci= tampoco procede (el admin no tiene ficha propia en personas).
+  const { searchParams } = new URL(req.url);
+  const ciParam = searchParams.get("ci");
+  if (sesion.rol === "admin" && !ciParam) {
+    return NextResponse.json(
+      { error: "El administrador debe especificar la cédula del titular (?ci=)" },
+      { status: 403 }
+    );
+  }
+
+  const ROLES_CON_FICHA = ["TITULADO", "EGRESADO", "admin"];
+  if (!ROLES_CON_FICHA.includes(sesion.rol)) {
+    return NextResponse.json(
+      { error: "Este rol no tiene asociada una ficha de datos personales" },
+      { status: 403 }
+    );
+  }
+
   try {
-    const { searchParams } = new URL(req.url);
-    const ciSolicitada = (searchParams.get("ci") ?? sesion.ci ?? "").trim().toUpperCase();
+    const ciSolicitada = (ciParam ?? sesion.ci ?? "").trim().toUpperCase();
     const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
 
     // El admin puede pedir la portabilidad de cualquiera; el titular solo la suya.
@@ -137,10 +157,31 @@ export async function DELETE(req: NextRequest) {
   const sesion = await leerSesionVigente(req);
   if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
 
+  // El rol "KARDEX" no tiene ficha de persona asociada; no puede ejercer el derecho
+  // de supresión porque no hay datos suyos que suprimir.
+  const { searchParams } = new URL(req.url);
+  const ciParam = searchParams.get("ci");
+  if (sesion.rol === "admin" && !ciParam) {
+    return NextResponse.json(
+      { error: "El administrador debe especificar la cédula del titular (?ci=)" },
+      { status: 403 }
+    );
+  }
+
+  const ROLES_CON_FICHA = ["TITULADO", "EGRESADO", "admin"];
+  if (!ROLES_CON_FICHA.includes(sesion.rol)) {
+    return NextResponse.json(
+      { error: "Este rol no tiene asociada una ficha de datos personales" },
+      { status: 403 }
+    );
+  }
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   const cliente = await pool.connect();
   try {
-    const { searchParams } = new URL(req.url);
-    const ciSolicitada = (searchParams.get("ci") ?? sesion.ci ?? "").trim().toUpperCase();
+    const ciSolicitada = (ciParam ?? sesion.ci ?? "").trim().toUpperCase();
     const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
 
     if (sesion.rol !== "admin" && ciSolicitada !== ciSesion) {

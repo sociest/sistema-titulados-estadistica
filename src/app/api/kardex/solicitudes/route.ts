@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { personas, solicitudTitulado, solicitudTituladoDocumento, solicitudTituladoHistorial } from "@/db/schema";
-import { errorInterno, exigirKardex, leerSesionVigente } from "@/lib/guards";
+import { errorInterno, exigirKardex, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { ipDesde, registrarAuditoria } from "@/lib/auditoria";
+import { enviarCorreoTitulado } from "@/lib/correo";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,10 @@ const decisionSchema = z.object({
 export async function PATCH(req: NextRequest) {
   const denegado = await exigirKardex(req);
   if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   let body: unknown;
   try {
     body = await req.json();
@@ -91,6 +96,18 @@ export async function PATCH(req: NextRequest) {
         .update(personas)
         .set({ tipo: "TITULADO", estadoRegistro: "VALIDADO", fechaValidacion: new Date() })
         .where(eq(personas.cedulaIdentidad, actualizada.ci));
+
+      // Aviso por correo (fuera de la transacción: si falla, la aceptación se mantiene).
+      const [persona] = await db
+        .select({ correo: personas.correoElectronico, nombre: personas.nombresApellidos })
+        .from(personas)
+        .where(eq(personas.cedulaIdentidad, actualizada.ci))
+        .limit(1);
+      if (persona?.correo) {
+        await enviarCorreoTitulado({ destino: persona.correo, nombre: persona.nombre }).catch((e) =>
+          console.error("[kardex] aviso de titulación no enviado:", e instanceof Error ? e.message : e)
+        );
+      }
     }
 
     await registrarAuditoria({

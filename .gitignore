@@ -30,9 +30,11 @@ next-env.d.ts.timestamp
 .env.development.local
 .env.production.local
 .env*.local
+.env.*
+!.env.example
 
 # `.env.example` SÍ se versiona: es la plantilla documentada.
-# `.env` no, porque trae el DB_PORT real y credenciales locales.
+# `.env` no, porque trae las credenciales reales (BD, SMTP, SESSION_SECRET).
 
 # ── Logs ──────────────────────────────────────────────────────────
 *.log
@@ -90,10 +92,15 @@ env/
 # Se generan corriendo los tests; son resultados, no fuente.
 reporte_prueba.pdf
 resultados.json
+resultados_estaticos.json
 resultados_con_descripcion.json
 resultadopruebas.md
+resumen.md
+servidor.log
 *.docx
 pruebascalidad/src/bk/
+pruebascalidad/src/tapas/
+pruebascalidad/.venv/
 venv-linux-3.12-paquetes.txt
 
 # ── Compresiones ──────────────────────────────────────────────────

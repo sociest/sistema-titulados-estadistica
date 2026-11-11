@@ -3,9 +3,10 @@ import { db } from "@/db";
 import { aFiltroEnum, aValorEnum } from "@/lib/filtros";
 import { personas } from "@/db/schema";
 import { and, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
-import { exigirAdmin, exigirAdminOContacto, errorInterno } from "@/lib/guards";
+import { exigirAdmin, exigirAdminOContacto, verificarCsrf, errorInterno } from "@/lib/guards";
 import { leerSesionDeRequest } from "@/lib/sesion";
-import { registrarAuditoria } from "@/lib/auditoria";
+import { registrarCambio } from "@/lib/auditoriaTablas";
+import { calcularCambios } from "@/lib/diff";
 import { personaAdminSchema, personaAutogestionSchema, primerErrorZod } from "@/lib/validaciones";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +68,9 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      return NextResponse.json(rows[0]);
+      return NextResponse.json(rows[0], {
+        headers: { "Cache-Control": "no-store, max-age=0" },
+      });
     }
 
     // ── Listado (solo admin) ──────────────────────────────────────────────────
@@ -181,6 +184,9 @@ export async function POST(req: NextRequest) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
 
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
   try {
     let body: unknown;
     try {
@@ -233,13 +239,16 @@ export async function POST(req: NextRequest) {
 
     const [creada] = await db.insert(personas).values(fila).returning();
 
-    await registrarAuditoria({
+    const sesionAlta = await leerSesionDeRequest(req);
+    await registrarCambio({
+      tabla: "audit_personas",
       accion: "crear",
-      entidad: "personas",
       entidadId: creada!.id,
-      idUsuario: await (await leerSesionDeRequest(req))?.sub ?? null,
-      detalles: `Alta de ${creada!.tipo}: ${creada!.nombresApellidos} (CI ${ci})`,
-      datosNuevos: creada,
+      idUsuario: sesionAlta?.sub ?? null,
+      rol: sesionAlta?.rol ?? null,
+      anterior: null,
+      nuevo: creada,
+      cambios: [],
       req,
     });
 
@@ -258,6 +267,9 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const ci = new URL(req.url).searchParams.get("ci");
   if (!ci) return NextResponse.json({ error: "ci requerido" }, { status: 400 });
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
 
   const ciNorm = ci.trim().toUpperCase();
 
@@ -290,7 +302,6 @@ export async function PATCH(req: NextRequest) {
      * self-service branch and never comes from the request body as a mutable value:
      * the server stamps the date and records the accepted text version.
      */
-    let patchConsentimiento: Record<string, unknown> = {};
 
     // El titular no puede tocar campos K ni cambiar su tipo.
     const CAMPOS_AUTOGESTION = [
@@ -348,10 +359,6 @@ export async function PATCH(req: NextRequest) {
         ...Object.fromEntries(
           CAMPOS_AUTOGESTION.filter((k) => body[k] !== undefined).map((k) => [k, body[k]])
         ),
-        // El consentimiento viaja en el cuerpo validado: si falta o no vale `true`, el
-        // esquema lo rechaza aquí, antes de tocar la base de datos.
-        consentimientoPrivacidad: body.consentimientoPrivacidad,
-        versionAvisoPrivacidad: body.versionAvisoPrivacidad,
       };
       if (Object.keys(soloDinamicos).length) {
         const check = personaAutogestionSchema.safeParse(soloDinamicos);
@@ -363,34 +370,6 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
-      // Consentimiento en la autogestión: se comprueba AQUÍ, en el servidor.
-      //
-      // Validarlo solo en el formulario significaría que basta con un `fetch` a mano
-      // para guardar datos sin haber aceptado el aviso. El titular es quien autoriza
-      // el tratamiento de sus propios datos, así que su aceptación tiene que ser
-      // demostrable: se guarda la fecha y la versión exacta del texto aceptado.
-      const acepta = body.consentimientoPrivacidad === true;
-      const version = typeof body.versionAvisoPrivacidad === "string" ? body.versionAvisoPrivacidad.trim() : "";
-      if (!acepta) {
-        return NextResponse.json(
-          {
-            error: "Debe aceptar el aviso de privacidad para guardar sus datos",
-            campos: { consentimientoPrivacidad: ["Debe aceptar el aviso de privacidad"] },
-          },
-          { status: 400 }
-        );
-      }
-      if (!version) {
-        return NextResponse.json(
-          { error: "Falta la versión del aviso aceptado", campos: { versionAvisoPrivacidad: ["Obligatorio"] } },
-          { status: 400 }
-        );
-      }
-      patchConsentimiento = {
-        consentimientoOtorgado: true,
-        consentimientoOtorgadoEn: new Date(),
-        consentimientoVersion: version,
-      };
     }
 
     const patch: Record<string, unknown> = {};
@@ -434,11 +413,10 @@ export async function PATCH(req: NextRequest) {
     }
 
     patch.actualizadoEn = new Date();
-    Object.assign(patch, patchConsentimiento);
 
     const [actualizada] = await db
       .update(personas)
-      .set(patch as any)
+      .set(patch as Record<string, unknown>)
       .where(eq(personas.cedulaIdentidad, ciNorm))
       .returning();
 
@@ -446,14 +424,15 @@ export async function PATCH(req: NextRequest) {
       (k) => JSON.stringify(anterior[k as keyof typeof anterior]) !== JSON.stringify(actualizada![k as keyof typeof actualizada])
     );
 
-    await registrarAuditoria({
+    await registrarCambio({
+      tabla: "audit_personas",
       accion: "editar",
-      entidad: "personas",
       entidadId: anterior.id,
       idUsuario: sesion?.sub ?? null,
-      detalles: `Edición de ${anterior.nombresApellidos} · campos: ${cambios.join(", ") || "ninguno"}`,
-      datosAnteriores: Object.fromEntries(cambios.map((k) => [k, anterior[k as keyof typeof anterior]])),
-      datosNuevos: Object.fromEntries(cambios.map((k) => [k, actualizada![k as keyof typeof actualizada]])),
+      rol: sesion?.rol ?? null,
+      anterior,
+      nuevo: actualizada,
+      cambios: calcularCambios(anterior as Record<string, unknown>, actualizada as Record<string, unknown>),
       req,
     });
 

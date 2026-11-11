@@ -266,7 +266,63 @@ body {
   display: none;
 }
 
-/* Tema claro suave: evitar blancos puros que quemen la vista */
-.bg-white { background-color: #f8fafc !important; }
-html:not(.dark) body { background-color: #eef2f7; }
+/* Tema claro suave: las tarjetas siguen casi blancas (no queman la vista) y el fondo
+   de la página ya NO es un blanco liso: base azul-grisácea + brillos de color + trama
+   de puntos. El patrón vive en un ::before fijo (position:fixed) y no en
+   background-attachment:fixed, que iOS ignora y en móvil produce saltos. */
+html:not(.dark) .bg-white { background-color: #fbfdff !important; }
+html:not(.dark) body { background-color: #e3ebf4; }
 
+html:not(.dark) body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(52rem 34rem at 6% -6%, rgba(14, 116, 144, 0.20), transparent 62%),
+    radial-gradient(46rem 32rem at 100% 4%, rgba(30, 58, 138, 0.17), transparent 62%),
+    radial-gradient(48rem 34rem at 62% 108%, rgba(232, 106, 23, 0.12), transparent 62%),
+    radial-gradient(rgba(15, 45, 82, 0.16) 1.1px, transparent 1.5px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 38%);
+  background-size: auto, auto, auto, 22px 22px, auto;
+}
+
+/* Modo oscuro: misma idea, mucho más discreta. */
+html.dark body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(46rem 30rem at 8% -8%, rgba(56, 189, 248, 0.08), transparent 62%),
+    radial-gradient(rgba(148, 163, 184, 0.10) 1px, transparent 1.4px);
+  background-size: auto, 24px 24px;
+}
+
+@media print {
+  body::before { display: none !important; }
+}
+
+/* Variables que usan /registro y /verificar (estaban sin definir, así que sus tarjetas
+   salían sin fondo y quedaban sobre el patrón). */
+:root {
+  --bg: #f1f5f9;
+  --fg: #0f172a;
+  --card: #fbfdff;
+  --border: #cbd5e1;
+}
+html.dark {
+  --bg: #0b1220;
+  --fg: #e2e8f0;
+  --card: #0f172a;
+  --border: #334155;
+}
+
+
+/* ── Ajustes de legibilidad: textos pequeños un poco más grandes ── */
+.text-\[10px\] { font-size: 0.75rem !important; line-height: 1rem; }
+.text-\[11px\] { font-size: 0.8125rem !important; line-height: 1.15rem; }
+.text-xs { font-size: 0.8125rem; line-height: 1.15rem; }
+.text-sm { font-size: 0.975rem; line-height: 1.4rem; }

@@ -1,8 +1,0 @@
-# Dependencias de la validación en ejecución.
-# Todo se instala dentro del entorno de pruebas; el proyecto NO se modifica.
-httpx>=0.27
-python-docx>=1.1          # informe .docx
-# Accesibilidad real (B-CAL-01). Si no se puede instalar el navegador, ese control
-# se reporta como SKIP con el motivo, nunca como PASS.
-playwright>=1.44
-# @axe-core/playwright se usa desde Node (npx), no desde Python.

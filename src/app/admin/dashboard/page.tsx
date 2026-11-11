@@ -184,7 +184,7 @@ export default function AdminDashboardPage() {
   // "Imprimir Informe", que ahora sale con carátula y solo con las métricas.
 
   if (authLoading) {
-    return <div className="max-w-3xl mx-auto p-8 text-sm text-slate-500">Verificando sesión…</div>;
+    return <div className="max-w-3xl mx-auto p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
   }
 
   if (!user || user.rol !== "admin") {
@@ -311,11 +311,6 @@ export default function AdminDashboardPage() {
                   ? "Visualizando: Registro Oficial de Titulados"
                   : "Visualizando: Información Complementaria de Egresados"}
               </span>
-              {vista === "EGRESADOS" && (
-                <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                  Secundario / 3er Nivel
-                </span>
-              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {vista === "TITULADOS"
@@ -358,10 +353,10 @@ export default function AdminDashboardPage() {
         <h2 className="text-base font-black tracking-[0.12em] text-[#0f2d52] mt-1">
           CARRERA DE ESTADÍSTICA
         </h2>
-        <p className="text-sm text-black mt-1">
+        <p className="text-sm text-black dark:text-slate-100 mt-1">
           Sistema de Seguimiento a Titulados y Egresados
         </p>
-        <p className="text-xs text-black mt-1">
+        <p className="text-xs text-black dark:text-slate-100 mt-1">
           Vista: {vista} · Generado:{" "}
           {new Date().toLocaleString("es-BO", {
             year: "numeric",
@@ -374,17 +369,9 @@ export default function AdminDashboardPage() {
         <div className="h-[1px] w-full bg-black/30 mt-4" />
       </div>
 
-      {/* Título de métricas */}
-      <div className="no-print flex items-center gap-3">
-        <span className="w-8 h-1 bg-[#0f2d52] dark:bg-blue-400" />
-        <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-          Métricas de {vista === "TITULADOS" ? "titulados" : "egresados"}
-        </h2>
-      </div>
-
       {/* Título que sí se imprime: va justo encima de los filtros de análisis */}
       <div className="mb-3">
-        <h2 className="text-base font-black tracking-tight text-black">
+        <h2 className="text-base font-black tracking-tight text-black dark:text-slate-100">
           Métricas de {vista === "TITULADOS" ? "titulados" : "egresados"}
         </h2>
       </div>
@@ -450,7 +437,7 @@ export default function AdminDashboardPage() {
 
           {/* Lectura de los filtros en papel: los <select> e <input> no se
               imprimen de forma útil, así que se imprime su valor como texto. */}
-          <div className="w-full text-[11px] text-black leading-relaxed">
+          <div className="w-full text-[11px] text-black dark:text-slate-100 leading-relaxed">
             <b>Filtros aplicados:</b> Sector&nbsp;=
             {sector === "TODOS"
               ? "Todos los sectores laborales"
@@ -852,12 +839,6 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       </div>
-
-      {/* Footer */}
-      <footer className="no-print text-center text-xs text-slate-400 dark:text-slate-500 py-4 border-t border-slate-200 dark:border-slate-800">
-        Carrera de Estadística · Universidad Mayor de San Andrés · Sistema Oficial de Acreditación
-        2026
-      </footer>
 
       {/* Error al generar el enlace temporal. Se muestra fuera del modal para que el
           mensaje no desaparezca al cerrarlo, y explica qué hacer (reintentar). */}
