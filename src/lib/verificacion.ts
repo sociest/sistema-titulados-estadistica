@@ -51,12 +51,14 @@ export type ResultadoVerificacion =
  */
 export async function validarToken(
   token: string,
-  soloConsultar = false
+  soloConsultar = false,
+  proposito = "REGISTRO"
 ): Promise<ResultadoVerificacion> {
+  const hash = hashDeTokenVerificacion(token);
   const filas = await db
     .select()
     .from(verificaciones)
-    .where(eq(verificaciones.tokenHash, hashDeTokenVerificacion(token)))
+    .where(and(eq(verificaciones.tokenHash, hash), eq(verificaciones.proposito, proposito)))
     .limit(1);
 
   const fila = filas[0];
@@ -67,17 +69,24 @@ export async function validarToken(
 
   if (soloConsultar) return { ok: true, idPersona: fila.idPersona };
 
-  await db
+  const ahora = new Date();
+  const consumidas = await db
     .update(verificaciones)
-    .set({ usadaEn: new Date(), intentos: fila.intentos + 1 })
+    .set({ usadaEn: ahora, intentos: sql`${verificaciones.intentos} + 1` })
     .where(
       and(
         eq(verificaciones.id, fila.id),
-        isNull(verificaciones.usadaEn) // evita que dos peticiones concurrentes gasten el mismo enlace
+        eq(verificaciones.proposito, proposito),
+        isNull(verificaciones.usadaEn),
+        gt(verificaciones.expiraEn, ahora),
+        sql`${verificaciones.intentos} < ${MAX_INTENTOS}`
       )
-    );
+    )
+    .returning({ idPersona: verificaciones.idPersona });
 
-  return { ok: true, idPersona: fila.idPersona };
+  if (!consumidas[0]) return { ok: false, motivo: "usado" };
+
+  return { ok: true, idPersona: consumidas[0].idPersona };
 }
 
 /** Registra un intento fallido, para no dejar el enlace atacable indefinidamente. */

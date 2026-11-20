@@ -28,14 +28,14 @@ export async function exigirAdmin(
 ): Promise<NextResponse | null> {
   const sesion = await leerSesionVigente(req);
   if (!sesion) {
-    await registrarAccesoDenegado(req, "sin sesión válida");
     return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   }
   if (sesion.rol !== "admin") {
+    const idUsuario = sesion.rol === "KARDEX" ? sesion.sub : null;
     await registrarAccesoDenegado(
       req,
       `rol ${sesion.rol} intentó usar un recurso de administrador`,
-      sesion.sub
+      idUsuario
     );
     return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
   }
@@ -47,7 +47,6 @@ export async function exigirKardex(
 ): Promise<NextResponse | null> {
   const sesion = await leerSesionVigente(req);
   if (!sesion) {
-    await registrarAccesoDenegado(req, "sin sesión válida para Kardex");
     return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   }
   if (sesion.rol !== "KARDEX") {
@@ -89,7 +88,6 @@ export async function exigirAdminOContacto(
 ): Promise<NextResponse | null> {
   const sesion = await leerSesionVigente(req);
   if (!sesion) {
-    await registrarAccesoDenegado(req, "sin sesión válida");
     return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   }
   if (sesion.rol === "admin") return null;
@@ -97,10 +95,11 @@ export async function exigirAdminOContacto(
   const normalizar = (s: string) => (s ?? "").trim().toUpperCase();
   if (normalizar(sesion.ci) && normalizar(sesion.ci) === normalizar(ciSolicitada)) return null;
 
+  const idUsuario = sesion.rol === "KARDEX" ? sesion.sub : null;
   await registrarAccesoDenegado(
     req,
     `intento de acceso al registro de otra persona (CI pedida: ${ciSolicitada})`,
-    sesion.sub
+    idUsuario
   );
   return NextResponse.json({ error: "No tiene permisos sobre este registro" }, { status: 403 });
 }
@@ -145,7 +144,7 @@ async function registrarAccesoDenegado(
  * Escape hatch: `CSRF_DISABLED=1` (solo para herramientas internas sin navegador).
  */
 export async function verificarCsrf(req: NextRequest): Promise<NextResponse | null> {
-  if (process.env.CSRF_DISABLED === "1") return null;
+  if (process.env.CSRF_DISABLED === "1" && process.env.NODE_ENV !== "production") return null;
 
   const origen = req.headers.get("origin") ?? req.headers.get("referer");
   if (!origen) {
@@ -156,21 +155,21 @@ export async function verificarCsrf(req: NextRequest): Promise<NextResponse | nu
     const url = new URL(origen);
     const permitidos = new Set<string>();
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (appUrl) {
-      try {
-        permitidos.add(new URL(appUrl).host);
-      } catch {
-        // NEXT_PUBLIC_APP_URL inválida: se ignora y se usa el Host real.
+    for (const envUrl of [process.env.NEXT_PUBLIC_APP_URL, process.env.SITIO_URL]) {
+      if (envUrl) {
+        try {
+          permitidos.add(new URL(envUrl).host);
+        } catch {
+          // URL inválida: se ignora y se usa el Host real.
+        }
       }
     }
 
-    const hostCabecera = (
-      req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? ""
-    )
-      .split(",")[0]!
-      .trim();
+    const hostCabecera = (req.headers.get("host") ?? "").split(",")[0]!.trim();
     if (hostCabecera) permitidos.add(hostCabecera);
+
+    const xfh = (req.headers.get("x-forwarded-host") ?? "").split(",")[0]!.trim();
+    if (xfh && process.env.TRUST_PROXY === "true") permitidos.add(xfh);
 
     if (!permitidos.has(url.host)) {
       return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });

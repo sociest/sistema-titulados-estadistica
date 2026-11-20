@@ -153,6 +153,7 @@ export default function AdminPersonasPage() {
   const [modal, setModal] = useState<"cerrado" | "nuevo" | "editar" | "borrar">("cerrado");
   const [editando, setEditando] = useState<Persona | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [subiendoImg, setSubiendoImg] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [confirmarPersona, setConfirmarPersona] = useState<null | { cambios: { campo: string; antes: string; nuevo: string }[] }>(null);
@@ -197,6 +198,34 @@ export default function AdminPersonasPage() {
       const { [k]: _quitar, ...resto } = e;
       return resto;
     });
+  };
+
+  const subirImagenPersona = async (archivo: File) => {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(archivo.type)) {
+      setMsg({ tipo: "error", texto: "Formato de imagen no permitido: use JPG, PNG o WEBP." });
+      return;
+    }
+    if (archivo.size > 5 * 1024 * 1024) {
+      setMsg({ tipo: "error", texto: "La imagen supera el máximo de 5 MB." });
+      return;
+    }
+    setSubiendoImg(true);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("archivo", archivo);
+      const res = await fetch("/api/noticias/imagen", { method: "POST", body: fd });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "No se pudo subir la imagen");
+      set("imagenUrl", j.url);
+    } catch (e: unknown) {
+      setMsg({
+        tipo: "error",
+        texto: e instanceof Error ? e.message : "No se pudo subir la imagen",
+      });
+    } finally {
+      setSubiendoImg(false);
+    }
   };
 
   // ── Acciones de modal ──────────────────────────────────────────────────────
@@ -472,14 +501,14 @@ export default function AdminPersonasPage() {
           </div>
 
           <select value={tipo} onChange={(e) => { setTipo(e.target.value); setPagina(1); }}
-            className="text-xs px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            className="text-xs px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100">
             <option value="TODOS">Todos los tipos</option>
             <option value="TITULADO">Solo titulados</option>
             <option value="EGRESADO">Solo egresados</option>
           </select>
 
           <select value={sector} onChange={(e) => { setSector(e.target.value); setPagina(1); }}
-            className="text-xs px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            className="text-xs px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100">
             <option value="TODOS">Todos los sectores</option>
             {Object.entries(ETIQUETA_SECTOR).filter(([k]) => k).map(([k, v]) => (
               <option key={k} value={k}>{v}</option>
@@ -487,7 +516,7 @@ export default function AdminPersonasPage() {
           </select>
 
           <select value={estado} onChange={(e) => { setEstado(e.target.value); setPagina(1); }}
-            className="text-xs px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            className="text-xs px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100">
             <option value="TODOS">Todos los estados</option>
             <option value="EMPLEADO">Empleado</option>
             <option value="INDEPENDIENTE">Independiente</option>
@@ -910,13 +939,7 @@ export default function AdminPersonasPage() {
                         e.preventDefault();
                         setDragOver(false);
                         const file = e.dataTransfer.files?.[0];
-                        if (file && file.type.startsWith("image/")) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            set("imagenUrl", ev.target?.result as string);
-                          };
-                          reader.readAsDataURL(file);
-                        }
+                        if (file) void subirImagenPersona(file);
                       }}
                       className={`mt-2 border-2 border-dashed rounded-lg p-3 transition-colors ${
                         dragOver
@@ -927,25 +950,21 @@ export default function AdminPersonasPage() {
                       <input
                         ref={imgFileInputRef}
                         type="file"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp"
                         className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (ev) => {
-                              set("imagenUrl", ev.target?.result as string);
-                            };
-                            reader.readAsDataURL(file);
-                          }
+                          if (file) void subirImagenPersona(file);
+                          e.target.value = "";
                         }}
                       />
                       <button
                         type="button"
+                        disabled={subiendoImg}
                         onClick={() => imgFileInputRef.current?.click()}
-                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
                       >
-                        ¿Subir archivo?
+                        {subiendoImg ? "Subiendo imagen…" : "¿Subir archivo JPG/PNG/WEBP?"}
                       </button>
                     </div>
                   </label>

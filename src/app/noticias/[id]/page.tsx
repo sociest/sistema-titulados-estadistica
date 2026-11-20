@@ -26,8 +26,10 @@ export default function NoticiaDetallePage() {
   const id = Number(params.id);
   const [n, setN] = useState<Noticia | null>(null);
   const [err, setErr] = useState("");
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
+    setImgError(false);
     if (!id) return;
     fetch(`/api/noticias/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("No encontrado"))))
@@ -36,7 +38,7 @@ export default function NoticiaDetallePage() {
   }, [id]);
 
   return (
-    <div className="min-h-screen dark:bg-slate-950">
+    <div className="min-h-screen dark:bg-transparent">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <button
           onClick={() => router.back()}
@@ -64,9 +66,14 @@ export default function NoticiaDetallePage() {
         {n && (
           <article className="mt-8">
             {/* Imagen central */}
-            {n.imagenUrl ? (
+            {n.imagenUrl && !imgError ? (
               <div className="rounded-3xl overflow-hidden shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-                <img src={n.imagenUrl} alt={n.titulo} className="w-full max-h-[440px] object-cover" />
+                <img
+                  src={n.imagenUrl}
+                  alt={n.titulo}
+                  onError={() => setImgError(true)}
+                  className="w-full max-h-[440px] object-cover"
+                />
               </div>
             ) : (
               <div
@@ -127,10 +134,14 @@ export default function NoticiaDetallePage() {
                 </div>
               </div>
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex gap-3 items-start">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0"><Clock className="w-4 h-4" /></div>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${n.publicado ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300" : "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300"}`}>
+                  <Clock className="w-4 h-4" />
+                </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Estado</p>
-                  <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Vigente</p>
+                  <p className={`text-sm font-bold ${n.publicado ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                    {n.publicado ? "Vigente" : "Borrador / Oculta"}
+                  </p>
                 </div>
               </div>
             </div>

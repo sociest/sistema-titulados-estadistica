@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
           and(
             eq(personas.estadoRegistro, "PENDIENTE"),
             eq(personas.activo, true),
-            sql`exists (select 1 from ${verificaciones} v where v.id_persona = ${personas.id} and v.usada_en is not null)`
+            sql`exists (select 1 from ${verificaciones} v where v.id_persona = ${personas.id} and v.proposito = 'REGISTRO' and v.usada_en is not null)`
           )
         );
       return NextResponse.json({
@@ -83,8 +83,8 @@ export async function GET(req: NextRequest) {
         motivoRechazo: personas.motivoRechazo,
         creadoEn: personas.creadoEn,
         // ¿Abrió el enlace de verificación del correo?
-        verificado: sql`exists (select 1 from ${verificaciones} v where v.id_persona = ${personas.id} and v.usada_en is not null)`,
-        enlaceExpirado: sql`exists (select 1 from ${verificaciones} v where v.id_persona = ${personas.id} and v.usada_en is null and v.expira_en < now())`,
+        verificado: sql`exists (select 1 from ${verificaciones} v where v.id_persona = ${personas.id} and v.proposito = 'REGISTRO' and v.usada_en is not null)`,
+        enlaceExpirado: sql`exists (select 1 from ${verificaciones} v where v.id_persona = ${personas.id} and v.proposito = 'REGISTRO' and v.usada_en is null and v.expira_en < now())`,
       })
       .from(personas)
       .where(and(...conds))

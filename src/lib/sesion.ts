@@ -18,7 +18,11 @@ import { NextRequest } from "next/server";
 /** Duración de la sesión: 30 minutos desde que se emite el token. */
 export const DURACION_SESION_MS = 30 * 60 * 1000;
 
+/** Ventana máxima de inactividad permitida entre peticiones: 15 minutos. */
+export const INACTIVIDAD_MS = 15 * 60 * 1000;
+
 export const NOMBRE_COOKIE = "seguit_sesion";
+export const COOKIE_ACTIVIDAD = "seguit_actividad";
 
 /** Datos que viajan dentro del token. `sub` es el id del registro o del usuario. */
 export type DatosToken = {
@@ -27,6 +31,7 @@ export type DatosToken = {
   ci: string;
   nombre?: string | null;
   correo?: string | null;
+  emitidoEn?: number;
 };
 
 /**
@@ -35,13 +40,30 @@ export type DatosToken = {
  */
 export type Sesion = DatosToken & { ultimaActividad: number };
 
-/** Vida de la cookie. El corte real de sesión lo impone el token (30 min). */
-export const VIDA_COOKIE_SEGUNDOS = 8 * 60 * 60;
+/** Vida de la cookie alineada con el token (30 min). */
+export const VIDA_COOKIE_SEGUNDOS = Math.floor(DURACION_SESION_MS / 1000);
+
+export function esCookieSegura(): boolean {
+  const urlPublica = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.SITIO_URL ?? "").trim();
+  if (urlPublica) return urlPublica.startsWith("https://");
+  return process.env.NODE_ENV === "production";
+}
 
 export function opcionesCookie(maxAge: number = VIDA_COOKIE_SEGUNDOS) {
   return {
     name: NOMBRE_COOKIE,
-    secure: process.env.NODE_ENV === "production",
+    secure: esCookieSegura(),
+    path: "/",
+    sameSite: "lax" as const,
+    maxAge,
+    httpOnly: true,
+  };
+}
+
+export function opcionesCookieActividad(maxAge: number = VIDA_COOKIE_SEGUNDOS) {
+  return {
+    name: COOKIE_ACTIVIDAD,
+    secure: esCookieSegura(),
     path: "/",
     sameSite: "lax" as const,
     maxAge,
@@ -104,7 +126,9 @@ async function webCrypto(): Promise<Crypto> {
 
 async function claveSecreto(): Promise<CryptoKey> {
   const secreto = process.env.SESSION_SECRET;
-  if (!secreto) throw new Error("SESSION_SECRET es obligatorio");
+  if (!secreto || secreto.length < 16) {
+    throw new Error("SESSION_SECRET es obligatorio y debe tener al menos 16 caracteres");
+  }
   return (await webCrypto()).subtle.importKey(
     "raw",
     new TextEncoder().encode(secreto),
@@ -183,8 +207,7 @@ export async function verificarToken(
     if (!Number.isFinite(emitidoEn)) return null;
     if (ahora - emitidoEn > DURACION_SESION_MS) return null;
 
-    const { emitidoEn: _omitido, ...datos } = payload;
-    return datos;
+    return { ...payload, emitidoEn };
   } catch {
     return null;
   }

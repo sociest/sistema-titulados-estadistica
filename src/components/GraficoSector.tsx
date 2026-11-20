@@ -226,8 +226,21 @@ export default function GraficoSector({
   const oscuro = useTemaOscuro();
   const [sectorHover, setSectorHover] = useState<number | null>(null);
   const [detalleAbierto, setDetalleAbierto] = useState(false);
+  const [esMovil, setEsMovil] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const actualizar = () => setEsMovil(mq.matches);
+    actualizar();
+    mq.addEventListener("change", actualizar);
+    return () => mq.removeEventListener("change", actualizar);
+  }, []);
 
   const datos = useMemo(() => agruparPorSectorPrincipal(series), [series]);
+  const totalPrincipal = useMemo(
+    () => datos.reduce((acc, s) => acc + s.valor, 0),
+    [datos]
+  );
   const detalle = useMemo(() => subcategoriasDeOtro(series), [series]);
   const totalDetalle = useMemo(
     () => (detalle.reduce((suma, s) => suma + s.valor, 0) as number),
@@ -255,12 +268,12 @@ export default function GraficoSector({
     datos,
     colores: datos.map((s) => colorSectorPrincipal(s.key)),
     textoEtiqueta,
-    etiquetas: true,
-    // Margen lateral generoso: reserva el hueco que ocupan las etiquetas, que si no se cortan
-    // contra el borde (la más larga es "Académico / Investigación").
-    margen: { top: 8, right: 96, bottom: 8, left: 96 },
-    innerRadius: 50,
-    outerRadius: 85,
+    etiquetas: !esMovil,
+    margen: esMovil
+      ? { top: 8, right: 12, bottom: 8, left: 12 }
+      : { top: 8, right: 96, bottom: 8, left: 96 },
+    innerRadius: esMovil ? 44 : 50,
+    outerRadius: esMovil ? 78 : 85,
     paddingAngle: 3,
     sectorHover,
     setSectorHover,
@@ -275,6 +288,25 @@ export default function GraficoSector({
       <div className={`solo-pantalla ${alto} w-full flex items-center justify-center`}>
         <Graficar {...principal} tool={tool} />
       </div>
+
+      {esMovil && datos.length > 0 && (
+        <ul className="solo-pantalla mt-2 grid grid-cols-1 gap-1.5 text-xs">
+          {datos.map((s) => (
+            <li key={s.key} className="flex items-center justify-between gap-2 px-1">
+              <span className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: colorSectorPrincipal(s.key) }}
+                />
+                <span className="truncate text-slate-700 dark:text-slate-300">{s.name}</span>
+              </span>
+              <span className="font-bold text-slate-900 dark:text-white tabular-nums shrink-0">
+                {s.valor} ({porcentaje(s.valor, totalPrincipal)})
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* El envoltorio lleva solo-impresion y el centrado va dentro: la regla de impresión
           fuerza display:block, que si noGANaría al flex del contenedor. */}

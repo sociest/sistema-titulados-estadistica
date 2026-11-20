@@ -75,6 +75,8 @@ export async function POST(req: NextRequest) {
       "incluirBajas",
       "vista",
       "conDetalle",
+      "cargo",
+      "nombre",
     ]);
 
     const query = new URLSearchParams();
@@ -85,9 +87,7 @@ export async function POST(req: NextRequest) {
       query.set(clave, String(valor));
     }
 
-    const { url, exp } = firmarDescarga(cfg.ruta, String(sesion.sub));
-
-    const completa = url + (query.size ? `&${query.toString()}` : "");
+    const { url: completa, exp } = firmarDescarga(cfg.ruta, String(sesion.sub), undefined, query);
 
     await registrarAuditoria({
       accion: "exportar",

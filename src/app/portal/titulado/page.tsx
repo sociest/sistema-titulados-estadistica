@@ -18,8 +18,8 @@ export default function TituladoPortal() {
   const router = useRouter();
   const [data, setData] = useState<any>(null);
   const [saving, setSaving] = useState(false);
-  // Consentimiento expreso: sin marcar esta casilla el servidor rechaza el guardado.
   const [msg, setMsg] = useState("");
+  const [esError, setEsError] = useState(false);
   const [sector, setSector] = useState<string>("");
   const [otroSector, setOtroSector] = useState<string>("");
   const [otroError, setOtroError] = useState<string>("");
@@ -34,7 +34,7 @@ export default function TituladoPortal() {
   useEffect(() => {
     if (!loading && !user) router.push("/login");
     if (!loading && user && user.rol !== "TITULADO" && user.rol !== "admin") router.push("/login");
-  }, [loading, user]);
+  }, [loading, user, router]);
 
   useEffect(() => {
     if (!user?.ci) return;
@@ -60,40 +60,44 @@ export default function TituladoPortal() {
     return () => { activa = false; };
   }, [user?.ci]);
 
-  if (loading || !data) return <div className="max-w-3xl mx-auto p-6 text-sm">Cargando formulario titulado...</div>;
-  if (data.tipo !== "TITULADO") return <div className="max-w-3xl mx-auto p-6 text-sm text-red-600">Esta cuenta no es de titulado (tipo={data.tipo}). Use CI 6893412.</div>;
+  if (loading || !data) return <div className="max-w-3xl mx-auto p-6 text-sm text-slate-500 dark:text-slate-400">Cargando formulario de titulado...</div>;
+  if (data.tipo !== "TITULADO") return <div className="max-w-3xl mx-auto p-6 text-sm text-red-600 dark:text-red-400">Esta cuenta no corresponde a un registro de titulado.</div>;
 
   const onSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const payload: any = {};
     ["correoElectronico","telefono","redesSociales","ciudadRegionTrabajo","estadoLaboral","sectorTrabajo","ocupacionCargo","observaciones","tiempoInsercionLaboralMeses"].forEach(k=> payload[k]=fd.get(k));
-    // El sector "--" (vacío) no debe bloquear el guardado: se envía como null.
     if (payload.sectorTrabajo === "") payload.sectorTrabajo = null;
     payload.trabajaEnEstadistica = fd.get("trabajaEnEstadistica")==="SI";
     payload.nivelEstudio = nivelEstudio || null;
     payload.realizoCursoUltimos3Anos = cursoReciente === "" ? null : cursoReciente === "SI";
     payload.ultimoCurso = cursoReciente === "SI" ? ultimoCurso.trim() : null;
     if (fd.get("sectorTrabajo") === "OTRO") {
-      // Si escribió algo se valida (palabra coherente); si está vacío solo se envía OTRO
+      if (!otroSector.trim()) {
+        setOtroError("Especifique el sector cuando elija 'Otro'.");
+        return;
+      }
       const err = validarSectorOtro(otroSector);
       if (err) { setOtroError(err); return; }
-      payload.sectorTrabajoOtro = otroSector.trim() || null;
+      payload.sectorTrabajoOtro = otroSector.trim();
     } else payload.sectorTrabajoOtro = null;
-    setSaving(true); setMsg("");
+    setSaving(true); setMsg(""); setEsError(false);
     try {
       const res = await fetch(`/api/personas?ci=${encodeURIComponent(user!.ci)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
       const j = await res.json();
-      if (!res.ok) { setMsg(j.error || "Error al guardar el perfil"); return; }
+      if (!res.ok) { setEsError(true); setMsg(j.error || "Error al guardar el perfil"); return; }
       const propiedades = CAMPOS_CARRERA.filter(({ id }) => camposAplicados.includes(id));
       const carreras = tieneOtraCarrera === "SI" && !camposAplicados.includes("NINGUNO")
         ? filasCarrera.map((row) => Object.fromEntries(propiedades.map(({ propiedad }) => [propiedad, row[propiedad] || null])))
         : [];
       const resCarreras = await fetch(`/api/carreras?ci=${encodeURIComponent(user!.ci)}`, { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ carreras }) });
-      if (!resCarreras.ok) { const error = await resCarreras.json(); setData(j); setMsg(`Perfil guardado; no se guardaron las carreras: ${error.error || "error"}`); return; }
+      if (!resCarreras.ok) { const error = await resCarreras.json(); setData(j); setEsError(true); setMsg(`Perfil guardado; no se guardaron las carreras: ${error.error || "error"}`); return; }
       setData(j);
+      setEsError(false);
       setMsg("Guardado correctamente");
     } catch {
+      setEsError(true);
       setMsg("No se pudo conectar con el servidor");
     } finally {
       setSaving(false);
@@ -157,9 +161,8 @@ export default function TituladoPortal() {
           <div>
             <label className={lbl}>Sector donde trabaja<select name="sectorTrabajo" value={sector} onChange={(e)=>setSector(e.target.value)} className={input}><option value="">--</option><option value="PUBLICO">Público</option><option value="PRIVADO">Privado</option><option value="ACADEMICO">Académico</option><option value="ONG">ONG</option><option value="OTRO">Otro</option></select></label>
             {sector === "OTRO" && (
-              <label className={`${lbl} mt-3 block`}>Especifique el sector (Otro)<input name="sectorTrabajoOtro" value={otroSector} onChange={(e)=>{ setOtroSector(e.target.value); setOtroError(""); }} placeholder="Ej. Gobierno municipal, organismo internacional, consultora..." className={`${input} ${otroError ? "border-red-500 focus:ring-2 focus:ring-red-600" : ""}`} />
+              <label className={`${lbl} mt-3 block`}>Especifique el sector (Otro) *<input name="sectorTrabajoOtro" value={otroSector} onChange={(e)=>{ setOtroSector(e.target.value); setOtroError(""); }} required placeholder="Ej. Gobierno municipal, organismo internacional, consultora..." className={`${input} ${otroError ? "border-red-500 focus:ring-2 focus:ring-red-600" : ""}`} />
                 {otroError && <span className="mt-1.5 block text-[11px] font-bold text-red-600 dark:text-red-400">⚠ {otroError}</span>}
-                <span className="mt-1 block text-[10px] text-slate-400">Si deja vac&iacute;o este campo, solo se registrar&aacute; la opci&oacute;n &quot;Otro&quot;.</span>
               </label>
             )}
           </div>
@@ -225,9 +228,19 @@ export default function TituladoPortal() {
               </fieldset>
             )}
           </div>
-          <label className="text-xs font-bold sm:col-span-2 text-slate-700 dark:text-slate-300">Ayudanos con tus sugerencias y observaciones sobre la pagina<textarea name="observaciones" defaultValue={data.observaciones||""} rows={3} className={input} /></label>
+          <label className="text-xs font-bold sm:col-span-2 text-slate-700 dark:text-slate-300">Ayúdanos con tus sugerencias y observaciones sobre la página<textarea name="observaciones" defaultValue={data.observaciones||""} rows={3} className={input} /></label>
         </div>
-        {msg && <div className="text-xs bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 rounded-lg px-3 py-2">{msg}</div>}
+        {msg && (
+          <div
+            className={`text-xs border rounded-lg px-3 py-2 ${
+              esError
+                ? "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900"
+                : "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900"
+            }`}
+          >
+            {msg}
+          </div>
+        )}
           
         <button disabled={saving} className="w-full bg-blue-900 hover:bg-blue-800 text-white rounded-xl py-2.5 font-bold disabled:opacity-50">{saving?"Guardando...":"Guardar cambios"}</button>
       </form>

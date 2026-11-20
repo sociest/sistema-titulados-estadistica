@@ -14,12 +14,30 @@ services:
     image: postgres:16-alpine
     container_name: sistitulados_dokploy_db
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=512MB"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "max_connections=40"
+      - "-c"
+      - "wal_buffers=8MB"
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD en Environment}
+      TZ: America/La_Paz
     volumes:
       - postgres_dokploy_data:/var/lib/postgresql/data
+    shm_size: 256mb
+    mem_limit: 1g
+    memswap_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-seguit_app} -d ${DB_NAME:-sistitulados_db}"]
       interval: 5s
@@ -42,6 +60,7 @@ services:
       args:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        NEXT_PUBLIC_DISABLE_TURNSTILE: ${NEXT_PUBLIC_DISABLE_TURNSTILE:-}
     container_name: sistitulados_dokploy_app
     restart: unless-stopped
     depends_on:
@@ -49,16 +68,27 @@ services:
         condition: service_healthy
     expose:
       - "3000"
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/auth/sesion >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=1024"
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       SESSION_SECRET: ${SESSION_SECRET:?Defina SESSION_SECRET en Environment}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       SITIO_URL: ${SITIO_URL:-http://localhost:3000}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+      NEXT_PUBLIC_DISABLE_TURNSTILE: ${NEXT_PUBLIC_DISABLE_TURNSTILE:-}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_DISABLED: ${TURNSTILE_DISABLED:-}
       AUTORUN_MIGRATIONS: ${AUTORUN_MIGRATIONS:-true}
-      AUTORUN_SEED: ${AUTORUN_SEED:-false}
+      AUTORUN_SEED: ${AUTORUN_SEED:-true}
       TZ: America/La_Paz
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -66,6 +96,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       CORREO_REMITENTE: ${CORREO_REMITENTE:-}
+      SMTP_FALLBACK: ${SMTP_FALLBACK:-}
       KARDEX_SEED_EMAIL: ${KARDEX_SEED_EMAIL:-}
       KARDEX_SEED_PASSWORD: ${KARDEX_SEED_PASSWORD:-}
     volumes:
@@ -74,7 +105,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 1536M
         reservations:
           memory: 512M
     networks:

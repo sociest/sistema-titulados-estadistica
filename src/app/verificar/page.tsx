@@ -66,7 +66,7 @@ function VerificarPanel() {
   }, [params, refrescar]);
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-4 py-16 text-[var(--fg)]">
+    <div className="min-h-screen flex items-center justify-center px-4 py-16 text-[var(--fg)]">
       <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-sm">
         <div className="flex items-center gap-3 mb-6">
           <span className="w-11 h-11 rounded-xl bg-[var(--nav-bg)] text-white flex items-center justify-center">
@@ -119,7 +119,7 @@ function VerificarPanel() {
           Ir al inicio de sesión
         </a>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -127,9 +127,9 @@ export default function PaginaVerificar() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen flex items-center justify-center">
+        <div className="min-h-screen flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin" />
-        </main>
+        </div>
       }
     >
       <VerificarPanel />

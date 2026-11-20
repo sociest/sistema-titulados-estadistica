@@ -125,3 +125,9 @@ venv-linux-3.12-paquetes.txt
 # Los PDF de reportes se generan al vuelo.
 *.pdf
 !reglas/*.pdf
+
+# ── Secretos locales ──────────────────────────────────────────────
+# Lo crea el encargado del servidor y se monta en el contenedor.
+# Nunca se versiona.
+smtp_pass*.txt
+.smtp_pass

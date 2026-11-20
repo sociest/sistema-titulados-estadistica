@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas, auditLog } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno, verificarCsrf } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
+import { exigirAdmin, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
+import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -33,17 +33,38 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const malo = idInvalido(params.id);
   if (malo) return malo;
 
-  const n = Number(params.id);
-  const filas = await db.select().from(personas).where(eq(personas.id, n)).limit(1);
-  if (!filas.length) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-
-  const sesion = await leerSesionDeRequest(req);
-  const esSuyo = sesion && sesion.rol !== "admin" && sesion.ci === filas[0]!.cedulaIdentidad;
-  if (sesion?.rol !== "admin" && !esSuyo) {
+  // Autorizar sesión vigente ANTES de consultar la BD para impedir enumeración de IDs y uso de sesiones revocadas.
+  const sesion = await leerSesionVigente(req);
+  if (!sesion) {
+    return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
+  }
+  if (sesion.rol !== "admin" && sesion.rol !== "TITULADO" && sesion.rol !== "EGRESADO") {
     return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
   }
 
-  return NextResponse.json(filas[0]);
+  const n = Number(params.id);
+  const filas = await db.select().from(personas).where(eq(personas.id, n)).limit(1);
+  if (!filas.length) {
+    return sesion.rol === "admin"
+      ? NextResponse.json({ error: "No encontrado" }, { status: 404 })
+      : NextResponse.json({ error: "No tiene permisos sobre este registro" }, { status: 403 });
+  }
+
+  const norm = (s?: string | null) => (s ?? "").trim().toUpperCase();
+  const esSuyo = sesion.rol !== "admin" && norm(sesion.ci) !== "" && norm(sesion.ci) === norm(filas[0]!.cedulaIdentidad);
+  if (sesion.rol !== "admin" && !esSuyo) {
+    return NextResponse.json({ error: "No tiene permisos sobre este registro" }, { status: 403 });
+  }
+  if (!filas[0]!.activo && sesion.rol !== "admin") {
+    return NextResponse.json(
+      { error: "Su registro se encuentra dado de baja. Contacte a la Carrera.", activo: false },
+      { status: 403 }
+    );
+  }
+
+  return NextResponse.json(filas[0], {
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }
 
 /**
@@ -103,7 +124,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (malo) return malo;
 
   const n = Number(params.id);
-  const sesion = await leerSesionDeRequest(req);
+  const sesion = await leerSesionVigente(req);
 
   try {
     const filas = await db.select().from(personas).where(eq(personas.id, n)).limit(1);
@@ -132,6 +153,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         })
         .where(eq(personas.id, n))
         .returning();
+      invalidarCacheDashboard();
 
       await registrarAuditoria({
         accion: "editar",
@@ -166,6 +188,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     if (definitivo) {
       const usos = await db.select({ n: sql<number>`count(*)::int` }).from(auditLog).where(eq(auditLog.entidadId, n));
       await db.delete(personas).where(eq(personas.id, n));
+      invalidarCacheDashboard();
 
       await registrarAuditoria({
         accion: "eliminar",
@@ -196,6 +219,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       })
       .where(eq(personas.id, n))
       .returning();
+    invalidarCacheDashboard();
 
     // Sus sesiones abiertas se cierran también: una baja que dejara al titular dentro
     // del sistema no sería una baja.

@@ -53,10 +53,16 @@ export default function TurnstileWidget({
     onExpireRef.current = onExpire;
   }, [onSuccess, onError, onExpire]);
 
-  const resolvedSiteKey =
-    siteKey || process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+  const rawSiteKey = (siteKey ?? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "").trim();
+  const desactivado = process.env.NEXT_PUBLIC_DISABLE_TURNSTILE === "true";
+  const resolvedSiteKey = rawSiteKey || "1x00000000000000000000AA";
 
   useEffect(() => {
+    if (desactivado) {
+      onSuccessRef.current("dev-turnstile-bypass");
+      return;
+    }
+
     let scriptEl: HTMLScriptElement | null = null;
 
     const renderWidget = () => {
@@ -116,7 +122,11 @@ export default function TurnstileWidget({
         widgetIdRef.current = null;
       }
     };
-  }, [resolvedSiteKey, theme]);
+  }, [desactivado, resolvedSiteKey, theme]);
+
+  if (desactivado) {
+    return null;
+  }
 
   return (
     <div

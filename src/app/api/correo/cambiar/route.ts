@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas, credencialesPersona } from "@/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
-import { hashPassword, verifyPassword } from "@/lib/password";
+import { HASH_SENUELO, hashPasswordAsync, verifyPasswordAsync } from "@/lib/password";
 import { registrarAuditoria, ipDesde } from "@/lib/auditoria";
 import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { verificarLimite, registrarIntento, limpiarIntentos } from "@/lib/rateLimit";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
+import { esPasswordIgualACredencial, passwordSeguraSchema } from "@/lib/validaciones";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ const cuerpoSchema = z.object({
   ci: z.string().trim().min(1, "La CI es obligatoria"),
   passwordActual: z.string().min(1, "Ingrese su contraseña actual"),
   correo: z.string().trim().toLowerCase().email("Correo inválido").max(254),
-  password: z.string().min(8, "La nueva contraseña debe tener al menos 8 caracteres").max(200),
+  password: passwordSeguraSchema,
 });
 
 /**
@@ -48,6 +49,13 @@ export async function POST(req: NextRequest) {
     const { passwordActual, correo, password } = parseo.data;
     const ci = parseo.data.ci.toUpperCase();
 
+    if (esPasswordIgualACredencial(password, ci, correo)) {
+      return NextResponse.json(
+        { error: "Por seguridad, la nueva contraseña no puede ser igual a su CI ni a su correo" },
+        { status: 400 }
+      );
+    }
+
     const ip = ipDesde(req) ?? "desconocida";
     const limite = verificarLimite(ip, ci);
     if (!limite.permitido) {
@@ -62,24 +70,29 @@ export async function POST(req: NextRequest) {
         id: personas.id,
         tipo: personas.tipo,
         activo: personas.activo,
+        estadoRegistro: personas.estadoRegistro,
         cedulaIdentidad: personas.cedulaIdentidad,
         passwordHash: credencialesPersona.passwordHash,
       })
       .from(personas)
       .leftJoin(credencialesPersona, eq(credencialesPersona.idPersona, personas.id))
-      .where(sql`upper(${personas.cedulaIdentidad}) = ${ci}`)
+      .where(eq(personas.cedulaIdentidad, ci))
       .limit(1);
 
     const p = filas[0];
-    // Misma respuesta para "no existe" y "contraseña incorrecta": no sirve para enumerar CI.
-    if (!p || !p.passwordHash || !verifyPassword(passwordActual, p.passwordHash)) {
+    if (!p || !p.passwordHash) {
+      await verifyPasswordAsync(passwordActual, HASH_SENUELO);
+      registrarIntento(ip, ci);
+      return NextResponse.json({ error: "Credenciales incorrectas" }, { status: 401 });
+    }
+    if (!(await verifyPasswordAsync(passwordActual, p.passwordHash))) {
       registrarIntento(ip, ci);
       return NextResponse.json({ error: "Credenciales incorrectas" }, { status: 401 });
     }
     limpiarIntentos(ip, ci);
 
-    if (!p.activo) {
-      return NextResponse.json({ error: "Registro dado de baja" }, { status: 403 });
+    if (!p.activo || p.estadoRegistro !== "VALIDADO") {
+      return NextResponse.json({ error: "Registro no habilitado" }, { status: 403 });
     }
     if (p.tipo !== "TITULADO" && p.tipo !== "EGRESADO") {
       return NextResponse.json(
@@ -91,13 +104,13 @@ export async function POST(req: NextRequest) {
     const existente = await db
       .select({ id: personas.id })
       .from(personas)
-      .where(and(sql`lower(trim(${personas.correoElectronico})) = ${correo}`, ne(personas.id, p.id)))
+      .where(and(sql`lower(${personas.correoElectronico}) = ${correo}`, ne(personas.id, p.id)))
       .limit(1);
     if (existente.length) {
-      return NextResponse.json({ error: "El correo ya está registrado por otra persona" }, { status: 409 });
+      return NextResponse.json({ error: "No se pudo asociar ese correo electrónico" }, { status: 409 });
     }
 
-    const passwordHash = hashPassword(password);
+    const passwordHash = await hashPasswordAsync(password);
 
     await db.transaction(async (tx) => {
       await tx

@@ -1,16 +1,55 @@
 services:
+  # Proxy opcional. Solo arranca con: docker compose --profile proxy up -d
+  # En Dokploy NO se usa (Dokploy ya trae su propio Traefik).
+  traefik:
+    image: traefik:v2.11
+    container_name: sistitulados_proxy
+    profiles:
+      - proxy
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "${TRAEFIK_PORT:-80}:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 256m
+    memswap_limit: 256m
+    networks:
+      - sistitulados_net
+
   db:
     image: postgres:16-alpine
     container_name: sistitulados_db
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=512MB"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "max_connections=40"
+      - "-c"
+      - "wal_buffers=8MB"
     environment:
       POSTGRES_DB: ${DB_NAME:-sistitulados_db}
       POSTGRES_USER: ${DB_USER:-seguit_app}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD en .env - copie .env.example a .env y complete}
+      TZ: America/La_Paz
     ports:
-      - ${DB_PORT:-5432}:5432
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    shm_size: 256mb
+    mem_limit: 1g
+    memswap_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-seguit_app} -d ${DB_NAME:-sistitulados_db}"]
       interval: 5s
@@ -32,6 +71,7 @@ services:
       args:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        NEXT_PUBLIC_DISABLE_TURNSTILE: ${NEXT_PUBLIC_DISABLE_TURNSTILE:-}
     image: sistitulados/app:latest
     container_name: sistitulados_app
     restart: unless-stopped
@@ -39,17 +79,34 @@ services:
       db:
         condition: service_healthy
     ports:
-      - ${APP_HOST_PORT:-3001}:3000
+      - "${APP_HOST_PORT:-3001}:3000"
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/auth/sesion >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=1024"
       DATABASE_URL: postgresql://${DB_USER:-seguit_app}:${DB_PASSWORD:?Falta DB_PASSWORD en .env - copie .env.example a .env y complete}@db:5432/${DB_NAME:-sistitulados_db}
       SESSION_SECRET: ${SESSION_SECRET:?Falta SESSION_SECRET en .env - copie .env.example a .env y complete}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
       SITIO_URL: ${SITIO_URL:-http://localhost:3001}
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+      NEXT_PUBLIC_DISABLE_TURNSTILE: ${NEXT_PUBLIC_DISABLE_TURNSTILE:-}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_DISABLED: ${TURNSTILE_DISABLED:-}
       AUTORUN_MIGRATIONS: ${AUTORUN_MIGRATIONS:-true}
-      AUTORUN_SEED: ${AUTORUN_SEED:-false}
+      AUTORUN_SEED: ${AUTORUN_SEED:-true}
       HOSTNAME: 0.0.0.0
       PORT: 3000
       SMTP_HOST: ${SMTP_HOST:-}
@@ -58,12 +115,19 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       CORREO_REMITENTE: ${CORREO_REMITENTE:-}
+      SMTP_FALLBACK: ${SMTP_FALLBACK:-}
       KARDEX_SEED_EMAIL: ${KARDEX_SEED_EMAIL:-}
       KARDEX_SEED_PASSWORD: ${KARDEX_SEED_PASSWORD:-}
       TZ: America/La_Paz
     volumes:
       - solicitudes_storage:/app/storage/solicitudes
       - noticias_storage:/app/storage/noticias
+      - ./smtp_pass.txt:/app/smtp_pass.txt:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.app.entrypoints=web"
+      - "traefik.http.services.app.loadbalancer.server.port=3000"
     networks:
       - sistitulados_net
 

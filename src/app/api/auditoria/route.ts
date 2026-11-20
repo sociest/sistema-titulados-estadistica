@@ -41,8 +41,13 @@ export async function GET(req: NextRequest) {
     if (entidad && entidad !== "TODAS") where.push(eq(auditLog.entidad, entidad));
 
     const usuarioId = sp.get("usuarioId");
-    if (usuarioId && usuarioId !== "TODOS")
-      where.push(eq(auditLog.idUsuario, parseInt(usuarioId, 10)));
+    if (usuarioId && usuarioId !== "TODOS") {
+      const idNum = Number(usuarioId);
+      if (!Number.isSafeInteger(idNum) || idNum <= 0) {
+        return NextResponse.json({ error: "usuarioId inválido" }, { status: 400 });
+      }
+      where.push(eq(auditLog.idUsuario, idNum));
+    }
 
     const desde = sp.get("desde");
     if (desde && !Number.isNaN(Date.parse(desde))) {
@@ -62,37 +67,38 @@ export async function GET(req: NextRequest) {
     const pagina = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
     const perPage = Math.min(200, Math.max(10, parseInt(sp.get("perPage") ?? "50", 10) || 50));
 
-    const [{ total }] = (await db
-      .select({ total: sql<number>`count(*)::int` })
-      .from(auditLog)
-      .where(cond)) as [{ total: number }];
+    const [conteoRes, filas, entidades] = await Promise.all([
+      db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(auditLog)
+        .where(cond),
+      db
+        .select({
+          id: auditLog.id,
+          accion: auditLog.accion,
+          entidad: auditLog.entidad,
+          entidadId: auditLog.entidadId,
+          detalles: auditLog.detalles,
+          datosAnteriores: auditLog.datosAnteriores,
+          datosNuevos: auditLog.datosNuevos,
+          ip: auditLog.ip,
+          creadoEn: auditLog.creadoEn,
+          usuarioNombre: usuarios.nombre,
+          usuarioCorreo: usuarios.correo,
+        })
+        .from(auditLog)
+        .leftJoin(usuarios, eq(auditLog.idUsuario, usuarios.id))
+        .where(cond)
+        .orderBy(desc(auditLog.creadoEn), desc(auditLog.id))
+        .limit(perPage)
+        .offset((pagina - 1) * perPage),
+      db
+        .selectDistinct({ e: auditLog.entidad })
+        .from(auditLog)
+        .orderBy(auditLog.entidad),
+    ]);
 
-    const filas = await db
-      .select({
-        id: auditLog.id,
-        accion: auditLog.accion,
-        entidad: auditLog.entidad,
-        entidadId: auditLog.entidadId,
-        detalles: auditLog.detalles,
-        datosAnteriores: auditLog.datosAnteriores,
-        datosNuevos: auditLog.datosNuevos,
-        ip: auditLog.ip,
-        creadoEn: auditLog.creadoEn,
-        usuarioNombre: usuarios.nombre,
-        usuarioCorreo: usuarios.correo,
-      })
-      .from(auditLog)
-      .leftJoin(usuarios, eq(auditLog.idUsuario, usuarios.id))
-      .where(cond)
-      .orderBy(desc(auditLog.creadoEn))
-      .limit(perPage)
-      .offset((pagina - 1) * perPage);
-
-    // Entidades distintas presentes, para poblar el filtro.
-    const entidades = await db
-      .selectDistinct({ e: auditLog.entidad })
-      .from(auditLog)
-      .orderBy(auditLog.entidad);
+    const total = conteoRes[0]?.total ?? 0;
 
     return NextResponse.json({
       filas,

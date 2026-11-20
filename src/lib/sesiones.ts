@@ -1,8 +1,8 @@
 import { createHash } from "crypto";
 import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { sesiones } from "@/db/schema";
-import { NOMBRE_COOKIE } from "./sesion";
+import { personas, sesiones, usuarios } from "@/db/schema";
+import { INACTIVIDAD_MS, NOMBRE_COOKIE } from "./sesion";
 import type { NextRequest } from "next/server";
 
 /**
@@ -62,26 +62,76 @@ export async function registrarSesion(datos: DatosAlta): Promise<void> {
   }
 }
 
-/** ¿Existe la fila de esta sesión y sigue viva? */
+/** ¿Existe la fila de esta sesión, la cuenta asociada sigue activa y no expiró por inactividad? */
 export async function sesionEstaVigente(token: string): Promise<boolean> {
   try {
+    const ahora = new Date();
+    const hash = hashDeToken(token);
     const filas = await db
-      .select({ id: sesiones.id })
+      .select({
+        id: sesiones.id,
+        rolSesion: sesiones.rol,
+        ultimaActividadEn: sesiones.ultimaActividadEn,
+        idUsuario: sesiones.idUsuario,
+        idPersona: sesiones.idPersona,
+        estadoUsuario: usuarios.estado,
+        rolUsuario: usuarios.rol,
+        personaActiva: personas.activo,
+        estadoRegistroPersona: personas.estadoRegistro,
+      })
       .from(sesiones)
+      .leftJoin(usuarios, eq(sesiones.idUsuario, usuarios.id))
+      .leftJoin(personas, eq(sesiones.idPersona, personas.id))
       .where(
         and(
-          eq(sesiones.tokenHash, hashDeToken(token)),
+          eq(sesiones.tokenHash, hash),
           isNull(sesiones.revocadaEn),
-          gt(sesiones.expiraEn, new Date())
+          gt(sesiones.expiraEn, ahora),
+          gt(sesiones.ultimaActividadEn, new Date(ahora.getTime() - INACTIVIDAD_MS))
         )
       )
       .limit(1);
-    return filas.length > 0;
+
+    const f = filas[0];
+    if (!f) return false;
+
+    // Verificar que la cuenta subyacente siga activa y con el mismo rol.
+    if (f.idUsuario !== null) {
+      if (f.estadoUsuario !== "activo" || f.rolUsuario !== f.rolSesion) return false;
+    }
+    if (f.idPersona !== null) {
+      if (!f.personaActiva || f.estadoRegistroPersona !== "VALIDADO") return false;
+    }
+
+    // Renovar marca de actividad en BD como máximo una vez por minuto para no penalizar lecturas.
+    if (ahora.getTime() - new Date(f.ultimaActividadEn).getTime() > 60_000) {
+      void db
+        .update(sesiones)
+        .set({ ultimaActividadEn: ahora })
+        .where(eq(sesiones.id, f.id))
+        .catch(() => {});
+    }
+
+    return true;
   } catch (e) {
     // Si no se puede leer la tabla de sesiones, se niega el acceso: no dejamos pasar
     // a ciegas cuando la base de datos está caída o inaccesible.
     console.error("[sesiones] no se pudo verificar la vigencia:", e);
     return false;
+  }
+}
+
+/** Revoca todas las sesiones abiertas de un usuario administrativo/Kardex. */
+export async function revocarSesionesDeUsuario(idUsuario: number, motivo: string): Promise<number> {
+  try {
+    const resultado = await db
+      .update(sesiones)
+      .set({ revocadaEn: new Date(), motivoRevocacion: motivo.slice(0, 120) })
+      .where(and(eq(sesiones.idUsuario, idUsuario), isNull(sesiones.revocadaEn)));
+    return (resultado as { rowCount?: number }).rowCount ?? 0;
+  } catch (e) {
+    console.error("[sesiones] no se pudieron revocar las sesiones del usuario:", e);
+    return 0;
   }
 }
 

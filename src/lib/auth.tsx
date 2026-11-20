@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 
 /**
  * Estado de sesión en el cliente.
@@ -90,8 +90,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refrescar();
   }, [refrescar]);
 
+  const valor = useMemo(
+    () => ({ user, loading, refrescar, logout }),
+    [user, loading, refrescar, logout]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading, refrescar, logout }}>
+    <AuthContext.Provider value={valor}>
       {children}
     </AuthContext.Provider>
   );

@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
 import { and, eq, sql, type SQL } from "drizzle-orm";
-import { leerSesionDeRequest } from "@/lib/sesion";
-import { errorInterno } from "@/lib/guards";
+import { errorInterno, leerSesionVigente } from "@/lib/guards";
 import { aFiltroEnum } from "@/lib/filtros";
 import { envolverIndicador } from "@/lib/privacidad";
+import { guardarCacheDashboard, leerCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -45,8 +45,10 @@ function construirFiltros(searchParams: URLSearchParams) {
 
   const sectorValido = aFiltroEnum(personas.sectorTrabajo, sector);
   if (sectorValido) conds.push(eq(personas.sectorTrabajo, sectorValido));
-  if (modalidad && modalidad !== "TODAS")
-    conds.push(eq(personas.modalidadTitulacion, aFiltroEnum(personas.modalidadTitulacion, modalidad, "TODAS")!));
+  if (modalidad && modalidad !== "TODAS") {
+    const modalidadValida = aFiltroEnum(personas.modalidadTitulacion, modalidad, "TODAS");
+    if (modalidadValida) conds.push(eq(personas.modalidadTitulacion, modalidadValida));
+  }
   if (anioMin !== null && Number.isFinite(anioMin))
     conds.push(sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) >= ${anioMin}`);
   if (anioMax !== null && Number.isFinite(anioMax))
@@ -63,33 +65,112 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get("scope");
-    const sesion = await leerSesionDeRequest(request);
-
-    // El dashboard con filtros o el administrativo exige admin.
-    if (scope === "admin" && sesion?.rol !== "admin") {
-      return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
-    }
-
     const { where, hayFiltros } = construirFiltros(searchParams);
-    if (hayFiltros && sesion?.rol !== "admin") {
-      return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
+
+    if (scope === "admin" || hayFiltros) {
+      const sesion = await leerSesionVigente(request);
+      if (sesion?.rol !== "admin") {
+        return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
+      }
+    } else {
+      const enCache = leerCacheDashboard<Record<string, unknown>>();
+      if (enCache) {
+        return NextResponse.json(enCache);
+      }
     }
 
-    // ── 1) KPIs por tipo, en una sola pasada agregada ──────────────────────────
-    const kpis = await db
-      .select({
-        tipo: personas.tipo,
-        total: sql<number>`count(*)::int`,
-        empleados: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE'))::int`,
-        enEstadistica: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE') and ${personas.trabajaEnEstadistica} is true)::int`,
-        promEgresoTitulacion: sql<number>`coalesce(round(avg(${personas.tiempoEgresoTitulacionMeses})::numeric, 2), 0)::float`,
-        promInsercion: sql<number>`coalesce(round(avg(${personas.tiempoInsercionLaboralMeses})::numeric, 2), 0)::float`,
-        anioMin: sql<number>`min(coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}))::int`,
-        anioMax: sql<number>`max(coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}))::int`,
-      })
-      .from(personas)
-      .where(where)
-      .groupBy(personas.tipo);
+    const ETIQUETAS: Record<string, string> = {
+      PUBLICO: "Público",
+      PRIVADO: "Privado",
+      ACADEMICO: "Académico / Investigación",
+      ONG: "ONG / Fundaciones",
+      OTRO: "Otro",
+      NO_ESPECIFICADO: "Sin Especificar",
+    };
+
+    const exprSector = sql<string>`coalesce(case when ${personas.sectorTrabajo} = 'OTRO'
+        then coalesce(nullif(trim(${personas.sectorTrabajoOtro}), ''), 'OTRO')
+        else ${personas.sectorTrabajo}::text end, 'NO_ESPECIFICADO')`;
+    const exprCiudad = sql<string>`coalesce(nullif(trim(${personas.ciudadRegionTrabajo}), ''), 'No especificado')`;
+
+    const [kpis, anios, sectores, geos, cohortes, modalidades, motivos] = await Promise.all([
+      db
+        .select({
+          tipo: personas.tipo,
+          total: sql<number>`count(*)::int`,
+          empleados: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE'))::int`,
+          enEstadistica: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE') and ${personas.trabajaEnEstadistica} is true)::int`,
+          promEgresoTitulacion: sql<number>`coalesce(round(avg(${personas.tiempoEgresoTitulacionMeses})::numeric, 2), 0)::float`,
+          promInsercion: sql<number>`coalesce(round(avg(${personas.tiempoInsercionLaboralMeses})::numeric, 2), 0)::float`,
+          anioMin: sql<number>`min(coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}))::int`,
+          anioMax: sql<number>`max(coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}))::int`,
+        })
+        .from(personas)
+        .where(where)
+        .groupBy(personas.tipo),
+      db
+        .select({
+          anio: sql<number>`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso})::int`,
+          tipo: personas.tipo,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(personas)
+        .where(and(where, sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) is not null`))
+        .groupBy(
+          sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso})`,
+          personas.tipo
+        )
+        .orderBy(sql`1`),
+      db
+        .select({
+          tipo: personas.tipo,
+          key: exprSector,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(personas)
+        .where(where)
+        .groupBy(personas.tipo, exprSector)
+        .orderBy(sql`3 desc`),
+      db
+        .select({
+          tipo: personas.tipo,
+          ciudad: exprCiudad,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(personas)
+        .where(where)
+        .groupBy(personas.tipo, exprCiudad)
+        .orderBy(sql`3 desc`),
+      db
+        .select({
+          cohorte: sql<string>`coalesce(nullif(trim(${personas.semestreIngreso}), ''), 'No registrado')`,
+          titulados: sql<number>`count(*) filter (where ${personas.tipo} = 'TITULADO')::int`,
+          egresados: sql<number>`count(*) filter (where ${personas.tipo} = 'EGRESADO')::int`,
+          total: sql<number>`count(*)::int`,
+        })
+        .from(personas)
+        .where(where)
+        .groupBy(sql`1`)
+        .orderBy(sql`1`),
+      db
+        .select({
+          modalidad: sql<string>`coalesce(${personas.modalidadTitulacion}::text, 'Sin especificar')`,
+          total: sql<number>`count(*)::int`,
+        })
+        .from(personas)
+        .where(and(where, eq(personas.tipo, "TITULADO")))
+        .groupBy(sql`1`)
+        .orderBy(sql`2 desc`),
+      db
+        .select({
+          motivo: sql<string>`coalesce(${personas.motivoNoTitulacion}::text, 'Sin especificar')`,
+          total: sql<number>`count(*)::int`,
+        })
+        .from(personas)
+        .where(and(where, eq(personas.tipo, "EGRESADO"), sql`${personas.motivoNoTitulacion} is not null`))
+        .groupBy(sql`1`)
+        .orderBy(sql`2 desc`),
+    ]);
 
     const tRow = kpis.find((k) => k.tipo === "TITULADO");
     const eRow = kpis.find((k) => k.tipo === "EGRESADO");
@@ -101,21 +182,6 @@ export async function GET(request: NextRequest) {
     const enEstadistica = tRow?.enEstadistica ?? 0;
 
     const pct = (parte: number, total: number) => (total > 0 ? Math.round((parte / total) * 10000) / 100 : 0);
-
-    // ── 2) Series por año ─────────────────────────────────────────────────────
-    const anios = await db
-      .select({
-        anio: sql<number>`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso})::int`,
-        tipo: personas.tipo,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(personas)
-      .where(and(where, sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso}) is not null`))
-      .groupBy(
-        sql`coalesce(${personas.anioTitulacion}, ${personas.anioEgreso})`,
-        personas.tipo
-      )
-      .orderBy(sql`1`);
 
     const mapaAnios = new Map<number, { titulados: number; egresados: number }>();
     for (const fila of anios) {
@@ -129,94 +195,16 @@ export async function GET(request: NextRequest) {
       .map(([anio, v]) => ({ anio, titulados: v.titulados, egresados: v.egresados }))
       .sort((a, b) => a.anio - b.anio);
 
-    // ── 3) Sector laboral ─────────────────────────────────────────────────────
-    const ETIQUETAS: Record<string, string> = {
-      PUBLICO: "Público",
-      PRIVADO: "Privado",
-      ACADEMICO: "Académico / Investigación",
-      ONG: "ONG / Fundaciones",
-      OTRO: "Otro",
-      NO_ESPECIFICADO: "Sin Especificar",
-    };
-
-    // Las expresiones agrupadas se reutilizan tal cual en SELECT y GROUP BY. Usar la
-    // referencia posicional `sql`1`` es frágil: cualquier cambio en la expresión (como un
-    // cast a texto) la desalinea y PostgreSQL exige que la columna esté en el GROUP BY.
-    const exprSector = sql<string>`coalesce(case when ${personas.sectorTrabajo} = 'OTRO'
-        then coalesce(nullif(trim(${personas.sectorTrabajoOtro}), ''), 'OTRO')
-        else ${personas.sectorTrabajo}::text end, 'NO_ESPECIFICADO')`;
-
-    const sectores = await db
-      .select({
-        tipo: personas.tipo,
-        key: exprSector,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(personas)
-      .where(where)
-      .groupBy(personas.tipo, exprSector)
-      .orderBy(sql`3 desc`);
-
     const aSeries = (tipo: string) =>
       sectores
         .filter((s) => s.tipo === tipo)
         .map((s) => ({ key: s.key, name: ETIQUETAS[s.key] ?? s.key, valor: s.n }));
-
-    // ── 4) Distribución geográfica ────────────────────────────────────────────
-    const exprCiudad = sql<string>`coalesce(nullif(trim(${personas.ciudadRegionTrabajo}), ''), 'No especificado')`;
-
-    const geos = await db
-      .select({
-        tipo: personas.tipo,
-        ciudad: exprCiudad,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(personas)
-      .where(where)
-      .groupBy(personas.tipo, exprCiudad)
-      .orderBy(sql`3 desc`);
 
     const aGeo = (tipo: string) =>
       geos
         .filter((g) => g.tipo === tipo)
         .map((g) => ({ ciudad: g.ciudad, total: g.n }));
 
-    // ── 5) Cohortes (titulados vs egresados) ─────────────────────────────────
-    const cohortes = await db
-      .select({
-        cohorte: sql<string>`coalesce(nullif(trim(${personas.semestreIngreso}), ''), 'No registrado')`,
-        titulados: sql<number>`count(*) filter (where ${personas.tipo} = 'TITULADO')::int`,
-        egresados: sql<number>`count(*) filter (where ${personas.tipo} = 'EGRESADO')::int`,
-        total: sql<number>`count(*)::int`,
-      })
-      .from(personas)
-      .where(where)
-      .groupBy(sql`1`)
-      .orderBy(sql`1`);
-
-    // ── 6) Modalidades de titulación ──────────────────────────────────────────
-    const modalidades = await db
-      .select({
-        modalidad: sql<string>`coalesce(${personas.modalidadTitulacion}::text, 'Sin especificar')`,
-        total: sql<number>`count(*)::int`,
-      })
-      .from(personas)
-      .where(and(where, eq(personas.tipo, "TITULADO")))
-      .groupBy(sql`1`)
-      .orderBy(sql`2 desc`);
-
-    // ── 7) Motivos de no titulación ───────────────────────────────────────────
-    const motivos = await db
-      .select({
-        motivo: sql<string>`coalesce(${personas.motivoNoTitulacion}::text, 'Sin especificar')`,
-        total: sql<number>`count(*)::int`,
-      })
-      .from(personas)
-      .where(and(where, eq(personas.tipo, "EGRESADO"), sql`${personas.motivoNoTitulacion} is not null`))
-      .groupBy(sql`1`)
-      .orderBy(sql`2 desc`);
-
-    // ── 8) Rango de años disponible, para los filtros de la UI ────────────────
     const anioMinGlobal = kpis.reduce<number | null>(
       (min, k) => (k.anioMin == null ? min : min == null ? k.anioMin : Math.min(min, k.anioMin)),
       null
@@ -226,9 +214,7 @@ export async function GET(request: NextRequest) {
       null
     );
 
-    return NextResponse.json({
-      // `envolverIndicador` solo oculta el valor cuando NO hay muestra alguna (total 0).
-      // No hay umbral k: los conteos agregados se publican siempre.
+    const payload = {
       kpisTitulados: {
         ...envolverIndicador(totalTitulados, totalTitulados),
         metric_value: envolverIndicador(
@@ -260,11 +246,14 @@ export async function GET(request: NextRequest) {
       seriesModalidades: modalidades,
       seriesMotivosNoTitulacion: motivos,
       rangoAnios: { min: anioMinGlobal, max: anioMaxGlobal },
-      // Sin umbral k, no hay nada que anunciar sobre ocultamiento de celdas. Se declara
-      // igualmente el modelo para que la interfaz pueda explicar al visitante por qué
-      // ve conteos y no fichas.
       privacidad: { modelo: "agregados sin datos identificativos", umbralK: null },
-    });
+    };
+
+    if (!hayFiltros && scope !== "admin") {
+      guardarCacheDashboard(payload);
+    }
+
+    return NextResponse.json(payload);
   } catch (error: unknown) {
     return errorInterno(error, "api/dashboard");
   }

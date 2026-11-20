@@ -3,11 +3,11 @@ import { z } from "zod";
 import { db } from "@/db";
 import { personas, verificaciones } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno, verificarCsrf } from "@/lib/guards";
+import { exigirAdmin, errorInterno, verificarCsrf, leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { leerSesionDeRequest } from "@/lib/sesion";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
 import { primerErrorZod as zodPrimerError } from "@/lib/validaciones";
+import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -113,15 +113,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .update(verificaciones)
         .set({ usadaEn: new Date() })
         .where(sql`${verificaciones.idPersona} = ${n} and ${verificaciones.usadaEn} is null`);
+      invalidarCacheDashboard();
     } else {
       await revocarSesionesDePersona(n, "Registro rechazado por la administración");
     }
 
+    const sesion = await leerSesionVigente(req);
     await registrarAuditoria({
       accion: esValidar ? "editar" : "eliminar",
       entidad: "personas",
       entidadId: n,
-      idUsuario: (await leerSesionDeRequest(req))?.sub ?? null,
+      idUsuario: sesion?.sub ?? null,
       detalles:
         (esValidar ? "Validación" : "Rechazo") +
         ` de la solicitud pública de ${persona.nombresApellidos} (CI ${persona.cedulaIdentidad})` +

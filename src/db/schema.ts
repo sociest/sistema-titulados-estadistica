@@ -228,7 +228,8 @@ export const personas = pgTable(
       sql`(${table.consentimientoOtorgado} and ${table.consentimientoOtorgadoEn} is not null and ${table.consentimientoVersion} is not null)
           or (not ${table.consentimientoOtorgado} and ${table.consentimientoOtorgadoEn} is null)`
     ),
-    ciIdx: uniqueIndex("personas_ci_unique_idx").on(table.cedulaIdentidad),
+    ciIdx: index("idx_personas_ci").on(table.cedulaIdentidad),
+    correoLowerIdx: index("idx_personas_correo_lower").using("btree", sql`lower(${table.correoElectronico})`),
     consentimientoIdx: index("idx_personas_consentimiento").on(table.consentimientoOtorgado),
     tipoIdx: index("idx_personas_tipo").on(table.tipo),
     estadoLaboralIdx: index("idx_personas_estado_laboral").on(table.estadoLaboral),

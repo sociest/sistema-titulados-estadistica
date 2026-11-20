@@ -3,35 +3,44 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useAuth } from "@/lib/auth";
-import { ShieldCheck, GraduationCap, BookOpen, Users, LogIn, Info } from "lucide-react";
+import { ShieldCheck, GraduationCap, BookOpen, Users, LogIn, Info, Eye, EyeOff } from "lucide-react";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import TurnstileWidget from "@/components/TurnstileWidget";
 
 function LoginForm() {
   const [ci, setCi] = useState("");
   const [password, setPassword] = useState("");
+  const [mostrarPassword, setMostrarPassword] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [logueando, setLogueando] = useState<string | null>(null);
-  const { refrescar } = useAuth();
+  const { user, loading: authLoading, refrescar } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
-  const origen = params.get("origen");
-
-  // Si ya hay sesión válida, no mostrar el formulario.
-  useEffect(() => {
-    document.title = "Iniciar sesión | Seguimiento a Titulados";
-  }, []);
+  const origenRaw = params.get("origen");
+  const origen = origenRaw && /^\/(?!\/|\\)/.test(origenRaw) ? origenRaw : null;
 
   const destinoPara = (rol: string): string => {
-    if (origen) return origen;
+    if (origen && origen !== "/login") return origen;
     if (rol === "admin") return "/admin/dashboard";
     if (rol === "KARDEX") return "/kardex/solicitudes";
     if (rol === "TITULADO") return "/portal/titulado";
     if (rol === "EGRESADO") return "/portal/egresado";
     return "/titulados";
   };
+
+  useEffect(() => {
+    document.title = "Iniciar sesión | Seguimiento a Titulados";
+  }, []);
+
+  // Si ya hay sesión válida, redirigir directamente a su panel.
+  useEffect(() => {
+    if (!authLoading && user && !logueando) {
+      router.replace(destinoPara(user.rol));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user, logueando, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,24 +56,40 @@ function LoginForm() {
 
       // ── Cambio obligatorio de CI a correo ─────────────────────────────────────
       if (data.requiereCambioCorreo) {
-        // Login exitoso pero requiere cambiar a correo (sesión ya creada)
         await refrescar();
         setLogueando(data.rol);
-        setTimeout(() => {
-          router.push(
-            `/cambiar-correo?ci=${encodeURIComponent(data.ci || "")}&nombre=${encodeURIComponent(data.nombre || "")}&tipo=${encodeURIComponent(data.tipo || "")}&cambios=${data.cambiosCorreoRestantes ?? 5}`
+        try {
+          sessionStorage.setItem(
+            "sg_cambio_correo",
+            JSON.stringify({
+              ci: data.ci || ci.trim(),
+              nombre: data.nombre || "",
+              tipo: data.tipo || data.rol || "",
+              cambios: data.cambiosCorreoRestantes ?? 5,
+            })
           );
+        } catch {}
+        setTimeout(() => {
+          router.push("/cambiar-correo");
         }, 900);
         return;
       }
 
       if (!res.ok) {
-        // Si es cambio obligatorio forzado (403), redirigir a cambiar correo
         if (data.codigo === "CORREO_OBLIGATORIO") {
-          setTimeout(() => {
-            router.push(
-              `/cambiar-correo?ci=${encodeURIComponent(data.ci || "")}&nombre=${encodeURIComponent(data.nombre || "")}&tipo=${encodeURIComponent(data.tipo || "")}&cambios=0`
+          try {
+            sessionStorage.setItem(
+              "sg_cambio_correo",
+              JSON.stringify({
+                ci: data.ci || ci.trim(),
+                nombre: data.nombre || "",
+                tipo: data.tipo || "",
+                cambios: 0,
+              })
             );
+          } catch {}
+          setTimeout(() => {
+            router.push("/cambiar-correo");
           }, 900);
           return;
         }
@@ -146,13 +171,24 @@ function LoginForm() {
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                 Contraseña
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                className="mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
+              <div className="relative mt-1">
+                <input
+                  type={mostrarPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPassword((prev) => !prev)}
+                  tabIndex={-1}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  aria-label={mostrarPassword ? "Ocultar contraseña" : "Ver contraseña"}
+                >
+                  {mostrarPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                 Si es su primer ingreso o no recuerda su contraseña, puede configurarla por correo.
               </p>
@@ -175,7 +211,7 @@ function LoginForm() {
 
             <button
               disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl py-2.5 font-bold disabled:opacity-50"
+              className="w-full inline-flex items-center justify-center gap-2 bg-[#0f3a6b] hover:bg-[#0b2b52] dark:bg-blue-600 dark:hover:bg-blue-500 text-white rounded-xl py-3 font-extrabold tracking-wide shadow-md shadow-blue-950/20 dark:shadow-blue-950/50 ring-1 ring-inset ring-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500 disabled:opacity-60"
             >
               <LogIn className="w-4 h-4" /> {loading ? "Verificando..." : "Ingresar"}
             </button>
@@ -186,7 +222,7 @@ function LoginForm() {
               href="/recuperar"
               className="font-semibold text-blue-800 hover:underline dark:text-blue-300"
             >
-              ¿Primera vez o olvidó su contraseña?
+              ¿Primera vez u olvidó su contraseña?
             </a>
           </p>
 

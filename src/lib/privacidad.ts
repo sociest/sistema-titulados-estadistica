@@ -66,7 +66,7 @@ export function envolverIndicador(
  * de OWASP (controlchars fuera del rango imprimible permitido).
  */
 
-const CARACTERES_INICIO_FORMULA = new Set(["=", "+", "-", "@", "\t", "\r"]);
+const CARACTERES_INICIO_FORMULA = new Set(["=", "+", "-", "@", "|", "\t", "\r"]);
 
 /**
  * Caracteres de control que se eliminan del texto exportado.
@@ -99,8 +99,8 @@ export function sanearCeldaExportacion(valor: unknown): string {
 
   // Si el texto (ya limpio) empieza por un disparador de fórmula, se antepone `'`.
   // Se hace UNA vez, al inicio: anteponerlo repetidamente dejaría el texto corrupto.
-  const primer = texto.charAt(0);
-  if (CARACTERES_INICIO_FORMULA.has(primer)) {
+  const primerNoEspacio = texto.trimStart().charAt(0);
+  if (CARACTERES_INICIO_FORMULA.has(texto.charAt(0)) || CARACTERES_INICIO_FORMULA.has(primerNoEspacio)) {
     texto = `'${texto}`;
   }
 

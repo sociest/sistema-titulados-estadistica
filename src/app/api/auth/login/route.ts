@@ -3,14 +3,20 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { credencialesPersona, personas, usuarios } from "@/db/schema";
 import { and, eq, or, sql } from "drizzle-orm";
-import { verifyPassword } from "@/lib/password";
-import { crearToken, opcionesCookie } from "@/lib/sesion";
+import { HASH_SENUELO, verifyPasswordAsync } from "@/lib/password";
+import {
+  COOKIE_ACTIVIDAD,
+  DURACION_SESION_MS,
+  NOMBRE_COOKIE,
+  crearToken,
+  opcionesCookie,
+  opcionesCookieActividad,
+} from "@/lib/sesion";
 import { loginSchema, primerErrorZod } from "@/lib/validaciones";
 import { registrarAuditoria, ipDesde } from "@/lib/auditoria";
 import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { verificarLimite, registrarIntento, limpiarIntentos } from "@/lib/rateLimit";
 import { registrarSesion } from "@/lib/sesiones";
-import { DURACION_SESION_MS } from "@/lib/sesion";
 import { verificarTurnstile } from "@/lib/turnstile";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +86,7 @@ export async function POST(req: NextRequest) {
           eq(usuarios.estado, "activo"),
           or(
             eq(usuarios.correo, entrada.toLowerCase()),
-            sql`upper(${usuarios.ci}) = ${entrada}`
+            eq(usuarios.ci, entrada)
           )
         )
       )
@@ -88,9 +94,7 @@ export async function POST(req: NextRequest) {
 
     if (admins.length) {
       const u = admins[0]!;
-      
-      // Si verifyPassword fuera asíncrono, agregar await: await verifyPassword(...)
-      const esPasswordValido = await verifyPassword(password, u.passwordHash);
+      const esPasswordValido = await verifyPasswordAsync(password, u.passwordHash);
 
       if (!esPasswordValido) {
         return await fallo(`Intento de acceso fallido al administrador ${u.correo}`);
@@ -102,19 +106,21 @@ export async function POST(req: NextRequest) {
 
       limpiarIntentos(ip, entrada);
 
-      // ⚠️ FIX: Usar await al crear el token
-      const token = await crearToken({
-        sub: u.id,
-        rol: u.rol,
-        ci: (u.ci ?? "").toUpperCase(),
-        nombre: u.nombre,
-        correo: u.correo,
-      });
+      const ahoraMs = Date.now();
+      const token = await crearToken(
+        {
+          sub: u.id,
+          rol: u.rol,
+          ci: (u.ci ?? "").toUpperCase(),
+          nombre: u.nombre,
+          correo: u.correo,
+        },
+        ahoraMs
+      );
 
-cookieStore.set("seguit_sesion", token, opcionesCookie());
+      cookieStore.set(NOMBRE_COOKIE, token, opcionesCookie());
+      cookieStore.set(COOKIE_ACTIVIDAD, String(ahoraMs), opcionesCookieActividad());
 
-      // Rastro de la sesión en `sesiones` (decisión D2): permite revocarla al instante
-      // y saber qué accesos están abiertos. Nunca bloquea el login si falla.
       await registrarSesion({
         token,
         idUsuario: u.id,
@@ -123,6 +129,15 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
         expiracionMs: DURACION_SESION_MS,
         ip: ipDesde(req),
         userAgent: req.headers.get("user-agent"),
+      });
+
+      await registrarAuditoria({
+        accion: "crear",
+        entidad: "sesion",
+        entidadId: u.id,
+        idUsuario: u.id,
+        detalles: `Inicio de sesión administrativo de ${u.correo} (${u.rol})`,
+        req,
       });
 
       return NextResponse.json({
@@ -134,7 +149,7 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
       });
     }
 
-    // ── 2) Titulados y egresados (por cédula) ────────────────────────────────
+    // ── 2) Titulados y egresados (por cédula o correo) ─────────────────────────
     const personasRows = await db
       .select({
         id: personas.id,
@@ -152,25 +167,26 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
       .leftJoin(credencialesPersona, eq(credencialesPersona.idPersona, personas.id))
       .where(
         or(
-          sql`upper(${personas.cedulaIdentidad}) = ${entrada}`,
-          sql`lower(trim(${personas.correoElectronico})) = ${entrada.toLowerCase()}`
+          eq(personas.cedulaIdentidad, entrada),
+          sql`lower(${personas.correoElectronico}) = ${entrada.toLowerCase()}`
         )
       )
       .limit(2);
 
-    if (personasRows.length > 1) return await fallo(`Intento de acceso con correo compartido ${entrada}`);
+    if (personasRows.length > 1) {
+      await verifyPasswordAsync(password, HASH_SENUELO);
+      return await fallo(`Intento de acceso con correo compartido ${entrada}`);
+    }
     const persona = personasRows[0];
     const credencialesInvalidas = async () =>
       await fallo(`Intento de acceso fallido con identificador ${entrada}`);
 
-    if (!persona) return await credencialesInvalidas();
+    if (!persona) {
+      await verifyPasswordAsync(password, HASH_SENUELO);
+      return await credencialesInvalidas();
+    }
 
-    // Baja lógica (decisión D3): un registro dado de baja no puede iniciar sesión, aunque
-    // el usuario siga recordando su contraseña. Se comprueba DESPUÉS de validar la
-    // contraseña y no antes, para que la respuesta siga siendo la misma para una cédula
-    // inexistente y para una dada de baja, y no sirva para enumerar quién está dado de
-    // baja en el sistema.
-    if (!persona.passwordHash || !(await verifyPassword(password, persona.passwordHash))) {
+    if (!persona.passwordHash || !(await verifyPasswordAsync(password, persona.passwordHash))) {
       return await credencialesInvalidas();
     }
 
@@ -244,16 +260,20 @@ cookieStore.set("seguit_sesion", token, opcionesCookie());
       );
     }
 
-    // ⚠️ FIX: Usar await al crear el token
-    const token = await crearToken({
-      sub: persona.id,
-      rol: persona.tipo,
-      ci: persona.cedulaIdentidad,
-      nombre: persona.nombresApellidos,
-      correo: persona.correoElectronico,
-    });
+    const ahoraPersonaMs = Date.now();
+    const token = await crearToken(
+      {
+        sub: persona.id,
+        rol: persona.tipo,
+        ci: persona.cedulaIdentidad,
+        nombre: persona.nombresApellidos,
+        correo: persona.correoElectronico,
+      },
+      ahoraPersonaMs
+    );
 
-cookieStore.set("seguit_sesion", token, opcionesCookie());
+    cookieStore.set(NOMBRE_COOKIE, token, opcionesCookie());
+    cookieStore.set(COOKIE_ACTIVIDAD, String(ahoraPersonaMs), opcionesCookieActividad());
 
     await registrarSesion({
       token,

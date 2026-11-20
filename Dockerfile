@@ -22,8 +22,10 @@ ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholde
 # en runtime ya no se pueden cambiar. Por eso llegan como argumentos de build.
 ARG NEXT_PUBLIC_APP_URL=""
 ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=""
+ARG NEXT_PUBLIC_DISABLE_TURNSTILE=""
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
+ENV NEXT_PUBLIC_DISABLE_TURNSTILE=$NEXT_PUBLIC_DISABLE_TURNSTILE
 
 RUN pnpm build
 
@@ -32,6 +34,7 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
@@ -44,9 +47,10 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Copiar archivos públicos y construidos de Next.js
+# Copiar archivos públicos y construidos de Next.js (excluyendo caché de compilación)
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+RUN rm -rf ./.next/cache
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/.npmrc ./.npmrc
@@ -57,6 +61,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/src ./src
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.mjs ./next.config.mjs
 
 # Los directorios deben existir ANTES de montar los volúmenes: si no, Docker los crea como
 # root y el usuario `nextjs` no puede escribir (subida de imágenes de noticias, solicitudes).

@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { DURACION_SESION_MS, NOMBRE_COOKIE, leerSesionDeRequest } from "@/lib/sesion";
+import {
+  COOKIE_ACTIVIDAD,
+  INACTIVIDAD_MS,
+  NOMBRE_COOKIE,
+  VIDA_COOKIE_SEGUNDOS,
+  esCookieSegura,
+  leerSesionDeRequest,
+} from "@/lib/sesion";
 
 /**
  * Protección de rutas en el SERVIDOR (decisión D4, aprobada: defensa en profundidad).
@@ -23,16 +30,6 @@ type Rol = (typeof ROLES)[number];
 
 const esRol = (valor: string): valor is Rol => (ROLES as readonly string[]).includes(valor);
 
-/** Ventana de inactividad: 15 min sin petición y la sesión se cae. */
-const INACTIVIDAD_MS = 15 * 60 * 1000;
-
-/**
- * Cookie auxiliar solo para el middleware. El token HMAC no se puede modificar (eso es
- * lo bueno de la firma), así que "última actividad" tiene que vivir aparte, en una
- * cookie normal que el middleware sí puede reescribir en cada respuesta.
- */
-const COOKIE_ACTIVIDAD = "seguit_actividad";
-
 /** Páginas: se redirige a /login porque el navegador sigue siendo una página. */
 const RUTAS_POR_ROL: Array<{ prefijo: string; roles: Rol[] }> = [
   { prefijo: "/admin", roles: ["admin"] },
@@ -55,10 +52,12 @@ const APIS_SOLO_ADMIN = [
   "/api/importar",
   "/api/auditoria",
   "/api/respaldar",
+  "/api/registros",
+  "/api/correo/probar",
 ];
 
 const APIS_SOLO_KARDEX = ["/api/kardex"];
-const APIS_REQUIEREN_SESION = ["/api/carreras", "/api/solicitudes"];
+const APIS_REQUIEREN_SESION = ["/api/carreras", "/api/solicitudes", "/api/correo/cambiar/saltar"];
 
 /**
  * Excepción a `/api/personas` para el portal de titulados y egresados.
@@ -98,11 +97,19 @@ function esApiPersonasDePropioTitular(ruta: string, req: NextRequest, sesion: { 
 const APIS_CON_SESION = ["/api/noticias", "/api/mis-datos"];
 
 export async function middleware(req: NextRequest) {
+  // Defensa en profundidad frente a intentos de suplantación de subpeticiones de middleware (CVE-2025-29927).
+  if (req.headers.has("x-middleware-subrequest")) {
+    return NextResponse.json({ error: "Cabecera no permitida" }, { status: 403 });
+  }
+
   const ruta = req.nextUrl.pathname;
   const esApi = ruta.startsWith("/api/");
 
   const regla = RUTAS_POR_ROL.find((r) => ruta === r.prefijo || ruta.startsWith(`${r.prefijo}/`));
-  const soloAdmin = APIS_SOLO_ADMIN.some((p) => ruta === p || ruta.startsWith(`${p}/`));
+  const esEscrituraNoticias =
+    (ruta === "/api/noticias" || ruta.startsWith("/api/noticias/")) && req.method !== "GET";
+  const soloAdmin =
+    esEscrituraNoticias || APIS_SOLO_ADMIN.some((p) => ruta === p || ruta.startsWith(`${p}/`));
   const soloKardex = APIS_SOLO_KARDEX.some((p) => ruta === p || ruta.startsWith(`${p}/`));
   const requiereSesion = APIS_REQUIEREN_SESION.some((p) => ruta === p || ruta.startsWith(`${p}/`));
   const conSesion = APIS_CON_SESION.some((p) => ruta === p || ruta.startsWith(`${p}/`));
@@ -131,18 +138,25 @@ export async function middleware(req: NextRequest) {
   }
 
   // ── Inactividad ──────────────────────────────────────────────────────────────
-  // La comprobación anterior comparaba `ultimaActividad`, que `leerSesionDeRequest`
-  // pone siempre en `Date.now()`: la diferencia era siempre 0 y el corte por inactividad
-  // no se disparaba nunca. Ahora la marca viaja en una cookie que el middleware escribe
-  // en cada respuesta.
-  const actividadPrevia = Number(req.cookies.get(COOKIE_ACTIVIDAD)?.value ?? 0);
-  if (actividadPrevia > 0 && Date.now() - actividadPrevia > INACTIVIDAD_MS) {
-    const respuesta = esApi
-      ? NextResponse.json({ error: "Sesión vencida por inactividad" }, { status: 401 })
-      : redirigir(req, ruta);
-    respuesta.cookies.set(NOMBRE_COOKIE, "", cookieBorrada());
-    respuesta.cookies.set(COOKIE_ACTIVIDAD, "", cookieBorrada());
-    return respuesta;
+  // En Edge validamos la cookie de actividad (incluyendo rechazo de valores corruptos o
+  // futuros); en Node `sesionEstaVigente` impone además `sesiones.ultima_actividad_en`.
+  const valorActividad = req.cookies.get(COOKIE_ACTIVIDAD)?.value;
+  if (valorActividad !== undefined) {
+    const actividadPrevia = Number(valorActividad);
+    const ahora = Date.now();
+    if (
+      !Number.isFinite(actividadPrevia) ||
+      actividadPrevia <= 0 ||
+      actividadPrevia > ahora + 60_000 ||
+      ahora - actividadPrevia > INACTIVIDAD_MS
+    ) {
+      const respuesta = esApi
+        ? NextResponse.json({ error: "Sesión vencida por inactividad" }, { status: 401 })
+        : redirigir(req, ruta);
+      respuesta.cookies.set(NOMBRE_COOKIE, "", cookieBorrada());
+      respuesta.cookies.set(COOKIE_ACTIVIDAD, "", cookieBorrada());
+      return respuesta;
+    }
   }
 
   // Un rol desconocido en el token no habilita nada: se trata como no-admin.
@@ -182,9 +196,9 @@ export async function middleware(req: NextRequest) {
   respuesta.cookies.set(COOKIE_ACTIVIDAD, String(Date.now()), {
     path: "/",
     sameSite: "lax",
-    maxAge: Math.floor(DURACION_SESION_MS / 1000),
+    maxAge: VIDA_COOKIE_SEGUNDOS,
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: esCookieSegura(),
   });
   return respuesta;
 }
@@ -202,7 +216,7 @@ function cookieBorrada() {
     maxAge: 0,
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: esCookieSegura(),
   };
 }
 
@@ -215,12 +229,14 @@ export const config = {
     "/api/exportar/:path*",
     "/api/importar/:path*",
     "/api/auditoria/:path*",
-  "/api/respaldar/:path*",
+    "/api/respaldar/:path*",
+    "/api/registros/:path*",
     "/api/noticias/:path*",
     "/api/mis-datos/:path*",
     "/kardex/:path*",
     "/api/kardex/:path*",
     "/api/carreras/:path*",
     "/api/solicitudes/:path*",
+    "/api/correo/:path*",
   ],
 };

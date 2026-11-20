@@ -24,6 +24,8 @@ import {
   UserCog,
   ScrollText,
   Upload,
+  Award,
+  Mail,
 } from "lucide-react";
 import {
   BarChart,
@@ -39,9 +41,10 @@ import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ExportModal from "@/components/ExportModal";
+import PdfSignatureModal from "@/components/PdfSignatureModal";
 import GraficoSector from "@/components/GraficoSector";
 import { useTemaOscuro } from "@/lib/useTemaOscuro";
-import { estilosTooltip } from "@/lib/graficoTema";
+import { estilosEjes, estilosTooltip } from "@/lib/graficoTema";
 import { SUBTITULO_SECTOR } from "@/lib/sectores";
 
 interface DashboardData {
@@ -81,6 +84,7 @@ export default function AdminDashboardPage() {
   const [sector, setSector] = useState<string>("TODOS");
   const [modalidad, setModalidad] = useState<string>("TODAS");
   const oscuro = useTemaOscuro();
+  const ejes = estilosEjes(oscuro);
   const [anioMin, setAnioMin] = useState<string>("");
   const [anioMax, setAnioMax] = useState<string>("");
 
@@ -91,6 +95,13 @@ export default function AdminDashboardPage() {
     params: URLSearchParams;
   }>({ open: false, formato: "excel", params: new URLSearchParams() });
   const [exportError, setExportError] = useState<string | null>(null);
+
+  // Modal de firma para PDF
+  const [pdfSignatureModal, setPdfSignatureModal] = useState<{
+    open: boolean;
+    params: URLSearchParams;
+  }>({ open: false, params: new URLSearchParams() });
+  const [pdfExportError, setPdfExportError] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -124,8 +135,22 @@ export default function AdminDashboardPage() {
   };
 
   useEffect(() => {
-    fetchData();
+    const demora = anioMin || anioMax ? 300 : 0;
+    const timer = setTimeout(() => {
+      void fetchData();
+    }, demora);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sector, modalidad, anioMin, anioMax]);
+
+  const dispararDescarga = (url: string) => {
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.rel = "noopener";
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+  };
 
   const handleExport = (formato: "excel" | "csv") => {
     const params = new URLSearchParams();
@@ -139,6 +164,18 @@ export default function AdminDashboardPage() {
     // que el cliente no pueda obtener una firma y usarla con otro formato distinto.
     setExportError(null);
     setExportModal({ open: true, formato, params });
+  };
+
+  const handleExportPdf = () => {
+    const params = new URLSearchParams();
+    params.append("vista", vista);
+    if (sector !== "TODOS") params.append("sector", sector);
+    if (modalidad !== "TODAS") params.append("modalidad", modalidad);
+    if (anioMin) params.append("anioMin", anioMin);
+    if (anioMax) params.append("anioMax", anioMax);
+    // No incluimos conDetalle por defecto para el PDF con firma
+    setPdfExportError(null);
+    setPdfSignatureModal({ open: true, params });
   };
 
   /**
@@ -166,10 +203,37 @@ export default function AdminDashboardPage() {
         setExportError(data.error ?? "No se pudo generar el enlace de descarga.");
         return;
       }
-      window.open(data.url, "_blank");
+      dispararDescarga(data.url);
       setExportModal((m) => ({ ...m, open: false }));
     } catch {
       setExportError("Error de red al generar el enlace de descarga.");
+    }
+  };
+
+  const confirmPdfExport = async (cargo: string, nombre: string) => {
+    setPdfExportError(null);
+    try {
+      const params = new URLSearchParams(pdfSignatureModal.params);
+      params.append("cargo", cargo);
+      params.append("nombre", nombre);
+
+      const res = await fetch("/api/exportar/enlace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destino: "pdf",
+          params: Object.fromEntries(params.entries()),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPdfExportError(data.error ?? "No se pudo generar el enlace de descarga.");
+        return;
+      }
+      dispararDescarga(data.url);
+      setPdfSignatureModal((m) => ({ ...m, open: false }));
+    } catch {
+      setPdfExportError("Error de red al generar el enlace de descarga.");
     }
   };
 
@@ -267,6 +331,14 @@ export default function AdminDashboardPage() {
             <ScrollText className="w-4 h-4" />
             Auditoría
           </Link>
+          <Link
+            href="/admin/correo"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+            title="Probar el envío de correo SMTP"
+          >
+            <Mail className="w-4 h-4" />
+            Correo
+          </Link>
           <button
             onClick={() => handleExport("excel")}
             className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
@@ -282,6 +354,14 @@ export default function AdminDashboardPage() {
           >
             <Download className="w-4 h-4" />
             CSV
+          </button>
+          <button
+            onClick={handleExportPdf}
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+            title="Generar PDF con firma para acreditación"
+          >
+            <Award className="w-4 h-4" />
+            PDF con firma
           </button>
           <button
             onClick={handlePrint}
@@ -325,7 +405,7 @@ export default function AdminDashboardPage() {
           {vista === "TITULADOS" ? (
             <button
               onClick={() => setVista("EGRESADOS")}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-1.5 transition-all shadow-2xs"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-1.5 transition-all shadow-sm"
             >
               <span>Ver info complementaria de Egresados</span>
               <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
@@ -435,10 +515,9 @@ export default function AdminDashboardPage() {
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
 
-          {/* Lectura de los filtros en papel: los <select> e <input> no se
-              imprimen de forma útil, así que se imprime su valor como texto. */}
-          <div className="w-full text-[11px] text-black dark:text-slate-100 leading-relaxed">
-            <b>Filtros aplicados:</b> Sector&nbsp;=
+          {/* Lectura de los filtros solo en papel */}
+          <div className="solo-impresion w-full text-[11px] text-black leading-relaxed">
+            <b>Filtros aplicados:</b> Sector&nbsp;={" "}
             {sector === "TODOS"
               ? "Todos los sectores laborales"
               : sector === "PUBLICO"
@@ -624,15 +703,15 @@ export default function AdminDashboardPage() {
                 data={data?.seriesPorAnio || []}
                 margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" strokeOpacity={0.2} />
-                <XAxis dataKey="anio" stroke="#64748b" fontSize={12} />
-                <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={ejes.rejilla} strokeOpacity={oscuro ? 0.35 : 0.25} />
+                <XAxis dataKey="anio" stroke={ejes.eje} tick={{ fill: ejes.textoEje, fontSize: 12 }} />
+                <YAxis stroke={ejes.eje} tick={{ fill: ejes.textoEje, fontSize: 12 }} allowDecimals={false} />
                 <Tooltip {...estilosTooltip(oscuro)} />
-                <Legend />
+                <Legend wrapperStyle={{ color: ejes.textoEje }} />
                 {vista === "TITULADOS" ? (
-                  <Bar dataKey="titulados" name="Titulados" fill="#1e3a8a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="titulados" name="Titulados" fill={oscuro ? "#3b82f6" : "#1e3a8a"} radius={[4, 4, 0, 0]} />
                 ) : (
-                  <Bar dataKey="egresados" name="Egresados" fill="#d97706" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="egresados" name="Egresados" fill={oscuro ? "#f59e0b" : "#d97706"} radius={[4, 4, 0, 0]} />
                 )}
               </BarChart>
             </ResponsiveContainer>
@@ -703,7 +782,7 @@ export default function AdminDashboardPage() {
                             style={{ width: `${porcentaje}%` }}
                           ></div>
                         </div>
-                        <span className="font-bold text-slate-900 dark:text-white w-14 text-right">
+                        <span className="font-bold text-slate-900 dark:text-white whitespace-nowrap tabular-nums text-right min-w-[5.25rem]">
                           {geo.total} ({porcentaje}%)
                         </span>
                       </div>
@@ -740,8 +819,8 @@ export default function AdminDashboardPage() {
                       <span className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200">
                         {mod.modalidad}
                       </span>
-                      <span className="text-xs font-extrabold px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-blue-900 dark:text-blue-400 shadow-2xs">
-                        {mod.total} titulados
+                      <span className="text-xs font-extrabold px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-blue-900 dark:text-blue-400 shadow-sm whitespace-nowrap shrink-0">
+                        {mod.total} {mod.total === 1 ? "titulado" : "titulados"}
                       </span>
                     </div>
                   ))}
@@ -767,8 +846,8 @@ export default function AdminDashboardPage() {
                       <span className="text-xs sm:text-sm font-semibold text-amber-950 dark:text-amber-200">
                         {mot.motivo}
                       </span>
-                      <span className="text-xs font-extrabold px-2.5 py-1 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-900 dark:text-amber-400 shadow-2xs">
-                        {mot.total} egresados
+                      <span className="text-xs font-extrabold px-2.5 py-1 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-900 dark:text-amber-400 shadow-sm whitespace-nowrap shrink-0">
+                        {mot.total} {mot.total === 1 ? "egresado" : "egresados"}
                       </span>
                     </div>
                   ))}
@@ -842,13 +921,16 @@ export default function AdminDashboardPage() {
 
       {/* Error al generar el enlace temporal. Se muestra fuera del modal para que el
           mensaje no desaparezca al cerrarlo, y explica qué hacer (reintentar). */}
-      {exportError && (
-        <div className="no-print fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-lg">
+      {(exportError || pdfExportError) && (
+        <div className="no-print fixed bottom-6 right-6 z-[150] max-w-sm rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-900 dark:text-red-200 shadow-lg">
           <b className="block font-bold">No se pudo descargar</b>
-          {exportError}
+          {exportError || pdfExportError}
           <button
-            onClick={() => setExportError(null)}
-            className="mt-2 text-xs font-bold underline"
+            onClick={() => {
+              setExportError(null);
+              setPdfExportError(null);
+            }}
+            className="mt-2 block text-xs font-bold underline"
           >
             Cerrar
           </button>
@@ -864,6 +946,14 @@ export default function AdminDashboardPage() {
         formato={exportModal.formato}
         params={exportModal.params}
         // Nota de seguridad: el enlace que se genera es temporal y caduca en minutos.
+        aviso="La descarga se realiza mediante un enlace seguro que caduca en 5 minutos y solo puede usarse desde esta sesión."
+      />
+
+      {/* Modal de firma para PDF */}
+      <PdfSignatureModal
+        isOpen={pdfSignatureModal.open}
+        onClose={() => setPdfSignatureModal((m) => ({ ...m, open: false }))}
+        onConfirm={confirmPdfExport}
         aviso="La descarga se realiza mediante un enlace seguro que caduca en 5 minutos y solo puede usarse desde esta sesión."
       />
     </div>

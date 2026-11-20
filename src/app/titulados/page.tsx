@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, History, Newspaper, LogIn, BarChart3 } from "lucide-react";
 import KpiNavigation from "@/components/KpiNavigation";
-import { CardPublicacion, CarruselHorizontal, claseSlideCarrusel, type NoticiaPublica } from "@/components/Publicaciones";
+import CarruselAuto, { type SlideItem } from "@/components/CarruselAuto";
+import { fmtFecha, type NoticiaPublica } from "@/components/Publicaciones";
 
 const SCROLL_KEY = "sg_scroll_titulados";
 
@@ -57,15 +58,36 @@ export default function TituladosPage() {
   const noticiasList = lista.filter((n) => n.categoria === "noticia");
   const convocatoriasList = lista.filter((n) => n.categoria === "convocatoria");
 
+  // Diapositivas para los carruseles automáticos (estilo aero glass).
+  const hitosItems: SlideItem[] = [
+    { key: "h1", etiqueta: "HITO 1 · 1974", tipo: "hito", titulo: "Creación de la carrera", texto: "Inicia sus actividades formativas orientándose al desarrollo y análisis de datos en el país.", imagenUrl: "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&q=80&w=800" },
+    { key: "h2", etiqueta: "HITO 2 · 1979", tipo: "hito", titulo: "Primeros titulados", texto: "Egresan y se titulan los primeros profesionales especialistas en estadística de la institución.", imagenUrl: "https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&q=80&w=800" },
+    { key: "h3", etiqueta: "HITO 3 · IETA", tipo: "hito", titulo: "Instituto de investigación", texto: "Se instituye el Instituto de Estadística Teórica y Aplicada (IETA) para potenciar la investigación científica.", imagenUrl: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&q=80&w=800" },
+    { key: "h4", etiqueta: "HITO 4 · ACTUALIDAD", tipo: "hito", titulo: "Enfoque ciencia de datos", texto: "La malla curricular se actualizó para integrar el perfil de ciencia de datos y modelos predictivos acordes a las demandas del mercado.", imagenUrl: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=800" },
+  ];
+  const aSlide = (n: NoticiaPublica): SlideItem => ({
+    key: n.id,
+    href: `/noticias/${n.id}`,
+    etiqueta: n.categoria === "convocatoria" ? "Convocatoria" : "Noticia",
+    tipo: n.categoria === "convocatoria" ? "convocatoria" : "noticia",
+    fecha: n.fecha,
+    titulo: n.titulo,
+    texto: n.cuerpo.split(/\n{2,}/)[0],
+    imagenUrl: n.imagenUrl,
+  });
+  const noticiasSlides = noticiasList.slice(0, 5).map(aSlide);
+  const convocatoriasSlides = convocatoriasList.slice(0, 5).map(aSlide);
+
   return (
-    <div className="min-h-screen dark:bg-[#0d1728]">
+    <div className="min-h-screen dark:bg-transparent">
       <section className="relative isolate flex min-h-[calc(100svh-76px)] items-center overflow-hidden bg-[#dceff0] text-slate-900 dark:bg-[#101b2d] dark:text-white">
-        <img src="/2png/fondo-estadistica.png" alt="" aria-hidden="true" className="absolute inset-0 -z-20 h-full w-full object-cover object-right opacity-70 dark:opacity-25" />
-        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-white/95 via-sky-50/85 to-cyan-50/35 dark:from-[#0c1830]/95 dark:via-[#0c1830]/82 dark:to-[#102337]/60" />
+        <img src="/2png/fondo-estadistica.png" alt="" aria-hidden="true" className="absolute inset-0 -z-20 h-full w-full object-cover object-right opacity-90 dark:opacity-60" />
+        {/* Velo asimétrico: opaco a la izquierda (zona de texto/botones) y se disipa
+            hacia la derecha para dejar ver la ilustración de fondo. */}
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-white via-white/75 to-transparent dark:from-[#0c1830] dark:via-[#0c1830]/80 dark:to-transparent" />
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 lg:py-12 relative grid lg:grid-cols-[1.15fr_.85fr] gap-8 lg:gap-12 items-center">
           <div>
             <div className="inline-flex items-center gap-2.5 rounded-full border border-sky-900/10 bg-white/75 px-3 py-2 shadow-sm backdrop-blur-md dark:border-white/20 dark:bg-white/10">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#123652]"><img src="/2png/logo-seguimiento.png" alt="" className="h-6 w-6 object-contain" /></span>
               <span className="text-sm sm:text-[15px] font-normal tracking-wide text-[#31536a] dark:text-white/90">CARRERA DE ESTADÍSTICA · UMSA</span>
             </div>
             <h1 className="mt-6 max-w-2xl text-4xl sm:text-5xl font-black leading-[1.08] text-[#142d46] dark:text-white">
@@ -75,7 +97,7 @@ export default function TituladosPage() {
               Actualiza tu trayectoria profesional, consulta indicadores y mantente al día con la Carrera de Estadística.
             </p>
             <div className="mt-7 flex flex-col sm:flex-row gap-3">
-              <Link href="/login" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#f2a638] px-5 py-3 text-[17px] font-normal text-slate-950 shadow-lg shadow-amber-900/15 transition hover:bg-[#e89424] dark:bg-amber-400 dark:hover:bg-amber-300">
+              <Link href="/login" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#f2a638] px-5 py-3 text-[17px] font-bold text-slate-950 shadow-lg shadow-amber-900/15 transition hover:bg-[#e89424] dark:bg-amber-400 dark:hover:bg-amber-300">
                 <LogIn className="w-4 h-4" /> Iniciar sesión <ArrowRight className="w-4 h-4" />
               </Link>
               <Link href="/kpis/titulados" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-cyan-900/15 bg-white/70 px-5 py-3 text-[17px] font-normal text-[#15556a] backdrop-blur-sm transition hover:bg-white dark:border-white/30 dark:bg-white/10 dark:text-white dark:hover:bg-white/20">
@@ -111,55 +133,14 @@ export default function TituladosPage() {
         <KpiNavigation />
       </section>
 
+
       {/* Hitos históricos */}
       <section id="hitos" className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center gap-2 mb-5">
           <span className="w-1.5 h-6 bg-[#0f2d52] dark:bg-blue-400 rounded-full" />
           <h3 className="text-base sm:text-lg font-black tracking-widest text-[#0f2d52] dark:text-white uppercase">Hitos Históricos — Carrera de Estadística</h3>
         </div>
-        <CarruselHorizontal cantidad={4}>
-          {[
-            {
-              etiqueta: "HITO 1 · 1974",
-              titulo: "Creación de la carrera",
-              desc: "Inicia sus actividades formativas orientándose al desarrollo y análisis de datos en el país.",
-              img: "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&q=80&w=800",
-            },
-            {
-              etiqueta: "HITO 2 · 1979",
-              titulo: "Primeros titulados",
-              desc: "Egresan y se titulan los primeros profesionales especialistas en estadística de la institución.",
-              img: "https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&q=80&w=800",
-            },
-            {
-              etiqueta: "HITO 3 · IETA",
-              titulo: "Instituto de investigación",
-              desc: "Se instituye el Instituto de Estadística Teórica y Aplicada (IETA) para potenciar la investigación científica.",
-              img: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=800",
-            },
-            {
-              etiqueta: "HITO 4 · ACTUALIDAD",
-              titulo: "Enfoque ciencia de datos",
-              desc: "La malla curricular se actualizó para integrar el perfil de ciencia de datos y modelos predictivos acordes a las demandas del mercado.",
-              img: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=800",
-            },
-          ].map((h) => (
-            <div key={h.titulo} className={claseSlideCarrusel(4)}>
-            <article className="h-full bg-white dark:bg-slate-800 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 transition flex flex-col">
-              <div className="h-36 sm:h-40 overflow-hidden">
-                <img src={h.img} alt={h.titulo} className="w-full h-full object-cover" />
-              </div>
-              <div className="p-4 flex flex-col flex-1">
-                <p className="text-[11px] font-black tracking-wide text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                  <History className="w-3.5 h-3.5 shrink-0" /> {h.etiqueta}
-                </p>
-                <h5 className="text-sm font-black text-[#0f2d52] dark:text-blue-300 uppercase mt-2 leading-snug">{h.titulo}</h5>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">{h.desc}</p>
-              </div>
-            </article>
-            </div>
-          ))}
-        </CarruselHorizontal>
+<CarruselAuto items={hitosItems} />
       </section>
 
       {/* Noticias y convocatorias */}
@@ -173,21 +154,11 @@ export default function TituladosPage() {
                 <h4 className="text-base sm:text-lg font-black tracking-widest text-[#0f2d52] dark:text-white uppercase">Noticias</h4>
               </div>
               {noticias === null ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 h-64 animate-pulse" />
-                  ))}
-                </div>
+                <div className="rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 h-[340px] sm:h-[400px] animate-pulse" />
               ) : noticiasList.length === 0 ? (
-                <p className="text-xs text-slate-400">Aún no hay noticias publicadas.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Aún no hay noticias publicadas.</p>
               ) : (
-                <CarruselHorizontal cantidad={Math.min(noticiasList.length, 4)}>
-                  {noticiasList.slice(0, 4).map((n) => (
-                    <div key={n.id} className={claseSlideCarrusel(Math.min(noticiasList.length, 4))}>
-                      <CardPublicacion n={n} />
-                    </div>
-                  ))}
-                </CarruselHorizontal>
+                <CarruselAuto items={noticiasSlides} />
               )}
               {noticiasList.length > 4 && (
                 <div className="mt-5 flex justify-center">
@@ -205,21 +176,11 @@ export default function TituladosPage() {
                 <h4 className="text-base sm:text-lg font-black tracking-widest text-[#0f2d52] dark:text-white uppercase">Convocatorias</h4>
               </div>
               {noticias === null ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {[0, 1].map((i) => (
-                    <div key={i} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 h-64 animate-pulse" />
-                  ))}
-                </div>
+                <div className="rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 h-[340px] sm:h-[400px] animate-pulse" />
               ) : convocatoriasList.length === 0 ? (
-                <p className="text-xs text-slate-400">Aún no hay convocatorias publicadas.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Aún no hay convocatorias publicadas.</p>
               ) : (
-                <CarruselHorizontal cantidad={Math.min(convocatoriasList.length, 4)}>
-                  {convocatoriasList.slice(0, 4).map((n) => (
-                    <div key={n.id} className={claseSlideCarrusel(Math.min(convocatoriasList.length, 4))}>
-                      <CardPublicacion n={n} />
-                    </div>
-                  ))}
-                </CarruselHorizontal>
+                <CarruselAuto items={convocatoriasSlides} />
               )}
               {convocatoriasList.length > 4 && (
                 <div className="mt-5 flex justify-center">

@@ -8,8 +8,8 @@
   --estad-navy: #0f2d52;
   --estad-blue: #0f3a6b;
   --estad-orange: #e86a17;
-  --nav-bg: #1e3a8a;
-  --nav-border: #0a2040;
+  --nav-bg: #153578;
+  --nav-border: #0c2352;
   --hero-from: #0f2d52;
   --hero-via: #14477f;
   --link: #0f3a6b;
@@ -21,6 +21,12 @@
 html.dark {
   --background: #020617;
   --foreground: #e2e8f0;
+  --nav-bg: #002853;
+  --nav-border: #021d3d;
+  --hero-from: #002853;
+  --hero-via: #123a66;
+  --estad-navy: #012652;
+  --estad-blue: #123a66;
   --link: #7fa8e0;
   --link-hover: #b7c6dd;
 }
@@ -55,18 +61,10 @@ body {
   }
 }
 
-/* Áreas táctiles mínimas en móvil */
-@media (max-width: 639px) {
-  a,
-  button {
-    min-height: 44px;
-  }
-}
-
 /* Paletas formales - override variables */
 html[data-palette="dis1"] {
-  --nav-bg: #1e3a8a;
-  --nav-border: #0a2040;
+  --nav-bg: #153578;   /* fondo del logo en modo claro (logocla.svg) */
+  --nav-border: #0c2352;
   --hero-from: #0f2d52;
   --hero-via: #14477f;
   --estad-navy: #0f2d52;
@@ -74,7 +72,7 @@ html[data-palette="dis1"] {
   --estad-orange: #e86a17;
 }
 html[data-palette="dis2"] {
-  --nav-bg: #1a2332;
+  --nav-bg: #153578;
   --nav-border: #0f1a2a;
   --hero-from: #1a2332;
   --hero-via: #2a3a52;
@@ -87,7 +85,7 @@ html[data-palette="dis2"] {
   --link-hover: #0f2240;
 }
 html[data-palette="dis3"] {
-  --nav-bg: #112e2e;
+  --nav-bg: #153578;
   --nav-border: #0a1f1f;
   --hero-from: #112e2e;
   --hero-via: #1d4d4d;
@@ -99,8 +97,17 @@ html[data-palette="dis3"] {
   --link: #14332e;
   --link-hover: #0a1f1f;
 }
+html[data-palette="noche1"] {
+  --nav-bg: #002853;   /* fondo del logo en modo oscuro (logoosc.svg) */
+  --nav-border: #021d3d;
+  --hero-from: #002853;
+  --hero-via: #123a66;
+  --estad-navy: #012652;
+  --estad-blue: #123a66;
+  --estad-orange: #e86a17;
+}
 html[data-palette="noche2"] {
-  --nav-bg: #0d1321;
+  --nav-bg: #002853;
   --nav-border: #1c2540;
   --hero-from: #0d1321;
   --hero-via: #1c2540;
@@ -109,7 +116,7 @@ html[data-palette="noche2"] {
   --estad-orange: #c0842a;
 }
 html[data-palette="noche3"] {
-  --nav-bg: #0f172a;
+  --nav-bg: #002853;
   --nav-border: #1e293b;
   --hero-from: #0f172a;
   --hero-via: #1e3a5a;
@@ -134,29 +141,14 @@ a {
 a:hover {
   color: var(--link-hover);
 }
-nav a:hover, footer a:hover {
+nav a:not([data-nav-cta]):hover, footer a:hover {
   color: #fff !important;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-/* botones formales contraste */
+/* Transiciones suaves en controles interactivos sin pisar estilos de cada componente */
 button, a.inline-flex {
-  transition: all 150ms ease;
-}
-button:hover, a.inline-flex:hover {
-  filter: none;
-}
-
-html:not(.dark) button:hover,
-html:not(.dark) a.inline-flex:hover {
-  background-color: #0f172a !important;
-  color: #fff !important;
-}
-
-html.dark button:hover,
-html.dark a.inline-flex:hover {
-  background-color: #fff !important;
-  color: #0f172a !important;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
 }
 
 body {
@@ -284,8 +276,11 @@ html:not(.dark) body::before {
     radial-gradient(46rem 32rem at 100% 4%, rgba(30, 58, 138, 0.17), transparent 62%),
     radial-gradient(48rem 34rem at 62% 108%, rgba(232, 106, 23, 0.12), transparent 62%),
     radial-gradient(rgba(15, 45, 82, 0.16) 1.1px, transparent 1.5px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 38%);
-  background-size: auto, auto, auto, 22px 22px, auto;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 38%),
+    url("/2png/backcla.png");
+  background-size: auto, auto, auto, 22px 22px, auto, cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* Modo oscuro: misma idea, mucho más discreta. */
@@ -297,8 +292,11 @@ html.dark body::before {
   pointer-events: none;
   background-image:
     radial-gradient(46rem 30rem at 8% -8%, rgba(56, 189, 248, 0.08), transparent 62%),
-    radial-gradient(rgba(148, 163, 184, 0.10) 1px, transparent 1.4px);
-  background-size: auto, 24px 24px;
+    radial-gradient(rgba(148, 163, 184, 0.10) 1px, transparent 1.4px),
+    url("/2png/backdark.png");
+  background-size: auto, 24px 24px, cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 @media print {
@@ -310,12 +308,14 @@ html.dark body::before {
 :root {
   --bg: #f1f5f9;
   --fg: #0f172a;
+  --muted: #64748b;
   --card: #fbfdff;
   --border: #cbd5e1;
 }
 html.dark {
   --bg: #0b1220;
   --fg: #e2e8f0;
+  --muted: #94a3b8;
   --card: #0f172a;
   --border: #334155;
 }
@@ -326,3 +326,9 @@ html.dark {
 .text-\[11px\] { font-size: 0.8125rem !important; line-height: 1.15rem; }
 .text-xs { font-size: 0.8125rem; line-height: 1.15rem; }
 .text-sm { font-size: 0.975rem; line-height: 1.4rem; }
+
+/* ── Carrusel destacado: transición de imagen ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(1.03); }
+  to { opacity: 1; transform: scale(1); }
+}

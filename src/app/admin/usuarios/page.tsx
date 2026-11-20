@@ -285,7 +285,6 @@ export default function AdminUsuariosPage() {
                   Rol
                   <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} className={inp}>
                     <option value="admin">Administrador</option>
-                    <option value="usuario">Usuario</option>
                     <option value="KARDEX">Kardex · Revisión de solicitudes</option>
                   </select>
                 </label>

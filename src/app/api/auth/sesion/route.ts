@@ -5,10 +5,12 @@ import { eq } from "drizzle-orm";
 import { registrarAuditoria, ipDesde } from "@/lib/auditoria";
 import { errorInterno, verificarCsrf } from "@/lib/guards";
 import {
+  COOKIE_ACTIVIDAD,
   DURACION_SESION_MS,
   NOMBRE_COOKIE,
   leerSesionDeRequest,
   opcionesCookie,
+  opcionesCookieActividad,
 } from "@/lib/sesion";
 import {
   limpiarSesionesVencidas,
@@ -41,44 +43,57 @@ const ROLES_CONOCIDOS = new Set(["admin", "TITULADO", "EGRESADO", "KARDEX"]);
 
 export async function GET(req: NextRequest) {
   try {
-    const sesion = await leerSesionDeRequest(req);
-    if (!sesion) {
-      return NextResponse.json({ autenticado: false }, { status: 401 });
+    const token = tokenDeRequest(req);
+    if (!token) {
+      return NextResponse.json(
+        { autenticado: false },
+        { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
+      );
     }
 
-    // El token firmado puede seguir siendo criptográficamente válido aunque la sesión
-    // se haya revocado (logout en otro dispositivo, cambio de contraseña). La fila de
-    // `sesiones` es la que manda.
-    const token = tokenDeRequest(req);
-    if (token && !(await sesionEstaVigente(token))) {
+    const sesion = await leerSesionDeRequest(req);
+    if (!sesion) {
       const respuesta = NextResponse.json(
-        { autenticado: false, error: "La sesión fue revocada" },
-        { status: 401 }
+        { autenticado: false },
+        { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
       respuesta.cookies.set(NOMBRE_COOKIE, "", opcionesCookie(0));
+      respuesta.cookies.set(COOKIE_ACTIVIDAD, "", opcionesCookieActividad(0));
       return respuesta;
     }
 
-    // Si el rol del token no es uno conocido, no se devuelve nada: un rol inventado
-    // habilita menos, nunca más.
+    if (!(await sesionEstaVigente(token))) {
+      const respuesta = NextResponse.json(
+        { autenticado: false, error: "La sesión fue revocada o venció" },
+        { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
+      );
+      respuesta.cookies.set(NOMBRE_COOKIE, "", opcionesCookie(0));
+      respuesta.cookies.set(COOKIE_ACTIVIDAD, "", opcionesCookieActividad(0));
+      return respuesta;
+    }
+
     if (!ROLES_CONOCIDOS.has(sesion.rol)) {
       const respuesta = NextResponse.json(
         { autenticado: false, error: "Rol desconocido" },
-        { status: 401 }
+        { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
       respuesta.cookies.set(NOMBRE_COOKIE, "", opcionesCookie(0));
+      respuesta.cookies.set(COOKIE_ACTIVIDAD, "", opcionesCookieActividad(0));
       return respuesta;
     }
 
-    return NextResponse.json({
-      autenticado: true,
-      id: sesion.sub,
-      rol: sesion.rol,
-      ci: sesion.ci,
-      nombre: sesion.nombre ?? null,
-      correo: sesion.correo ?? null,
-      expiraEn: Date.now() + DURACION_SESION_MS,
-    });
+    return NextResponse.json(
+      {
+        autenticado: true,
+        id: sesion.sub,
+        rol: sesion.rol,
+        ci: sesion.ci,
+        nombre: sesion.nombre ?? null,
+        correo: sesion.correo ?? null,
+        expiraEn: (sesion.emitidoEn ?? Date.now()) + DURACION_SESION_MS,
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
   } catch (e) {
     return errorInterno(e, "auth/sesion GET");
   }
@@ -146,6 +161,7 @@ export async function POST(req: NextRequest) {
 
     const respuesta = NextResponse.json({ cerrado: true });
     respuesta.cookies.set(NOMBRE_COOKIE, "", opcionesCookie(0));
+    respuesta.cookies.set(COOKIE_ACTIVIDAD, "", opcionesCookieActividad(0));
     return respuesta;
   } catch (e) {
     return errorInterno(e, "auth/sesion POST");

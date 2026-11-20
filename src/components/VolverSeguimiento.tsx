@@ -1,15 +1,11 @@
 "use client";
+import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { useCierreSesion } from "@/lib/useCierreSesion";
 
 export default function VolverSeguimiento({ className }: { className?: string }) {
-  const { volverSeguimiento, overlay } = useCierreSesion();
   return (
-    <>
-      <button onClick={volverSeguimiento} className={className}>
-        <ArrowLeft className="w-4 h-4 rotate-180" /> Volver a Seguimiento a Titulados
-      </button>
-      {overlay}
-    </>
+    <Link href="/titulados" className={className}>
+      <ArrowLeft className="w-4 h-4 shrink-0" /> Volver a Seguimiento a Titulados
+    </Link>
   );
 }

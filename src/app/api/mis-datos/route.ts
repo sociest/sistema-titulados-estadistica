@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unlink } from "node:fs/promises";
+import path from "node:path";
 import { db, pool } from "@/db";
-import { personas, solicitudTituladoHistorial, carreras, credencialesPersona, sesiones } from "@/db/schema";
+import { personas, solicitudTituladoHistorial, carreras } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdminOContacto, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
+import { errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { supresionDatosSchema, primerErrorZod } from "@/lib/validaciones";
+import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
+
+const SOLICITUDES_STORAGE_DIR = path.resolve(
+  process.env.SOLICITUDES_STORAGE_DIR || path.join(process.cwd(), "storage", "solicitudes")
+);
 
 /**
  * GET /api/mis-datos  (titular o admin)
@@ -59,12 +66,13 @@ export async function GET(req: NextRequest) {
     const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
 
     // El admin puede pedir la portabilidad de cualquiera; el titular solo la suya.
+    const actorUsuarioId = sesion.rol === "admin" ? sesion.sub : null;
     if (sesion.rol !== "admin" && ciSolicitada !== ciSesion) {
       await registrarAuditoria({
         accion: "consultar_datos",
         entidad: "personas",
-        idUsuario: sesion.sub,
-        detalles: `Intento de portabilidad sobre otra ficha (CI pedida: ${ciSolicitada})`,
+        idUsuario: actorUsuarioId,
+        detalles: `Intento de portabilidad sobre otra ficha por sesión persona #${sesion.sub}`,
         req,
       });
       return NextResponse.json(
@@ -87,22 +95,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Registro no encontrado" }, { status: 404 });
     }
 
-    // Grados y datos universitarios asociados, que viven en otra tabla.
-    const grados = await db.select().from(carreras).where(eq(carreras.ci, ciSolicitada));
-
-    // Histórico administrativo: qué le pasó a su solicitud y quién lo decidió.
-    const historial = await db
-      .select()
-      .from(solicitudTituladoHistorial)
-      .where(sql`upper(${solicitudTituladoHistorial.ci}) = ${ciSolicitada}`)
-      .orderBy(sql`${solicitudTituladoHistorial.fecha} desc`);
+    const [grados, historial] = await Promise.all([
+      db.select().from(carreras).where(eq(carreras.ci, persona.cedulaIdentidad)),
+      db
+        .select()
+        .from(solicitudTituladoHistorial)
+        .where(eq(solicitudTituladoHistorial.ci, persona.cedulaIdentidad))
+        .orderBy(sql`${solicitudTituladoHistorial.fecha} desc`),
+    ]);
 
     await registrarAuditoria({
       accion: "consultar_datos",
       entidad: "personas",
       entidadId: persona.id,
-      idUsuario: sesion.sub,
-      detalles: `Portabilidad solicitada sobre CI ${ciSolicitada}`,
+      idUsuario: actorUsuarioId,
+      detalles: `Portabilidad solicitada sobre ficha #${persona.id} (${sesion.rol === "admin" ? "administrador" : "titular"})`,
       req,
     });
 
@@ -179,86 +186,113 @@ export async function DELETE(req: NextRequest) {
   const denegadoCsrf = await verificarCsrf(req);
   if (denegadoCsrf) return denegadoCsrf;
 
-  const cliente = await pool.connect();
-  try {
-    const ciSolicitada = (ciParam ?? sesion.ci ?? "").trim().toUpperCase();
-    const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
+  const ciSolicitada = (ciParam ?? sesion.ci ?? "").trim().toUpperCase();
+  const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
+  const actorUsuarioId = sesion.rol === "admin" ? sesion.sub : null;
 
-    if (sesion.rol !== "admin" && ciSolicitada !== ciSesion) {
-      await registrarAuditoria({
-        accion: "suprimir_datos",
-        entidad: "personas",
-        idUsuario: sesion.sub,
-        detalles: `Intento de supresión sobre otra ficha (CI pedida: ${ciSolicitada})`,
-        req,
-      });
+  if (sesion.rol !== "admin" && ciSolicitada !== ciSesion) {
+    await registrarAuditoria({
+      accion: "suprimir_datos",
+      entidad: "personas",
+      idUsuario: actorUsuarioId,
+      detalles: `Intento de supresión sobre otra ficha por sesión persona #${sesion.sub}`,
+      req,
+    });
+    return NextResponse.json(
+      { error: "No tiene permisos sobre este registro" },
+      { status: 403 }
+    );
+  }
+
+  if (!ciSolicitada) {
+    return NextResponse.json({ error: "Falta la cédula de identidad" }, { status: 400 });
+  }
+
+  let motivo: string;
+  try {
+    const crudo: unknown = await req.json();
+    const check = supresionDatosSchema.safeParse(crudo);
+    if (!check.success) {
       return NextResponse.json(
-        { error: "No tiene permisos sobre este registro" },
-        { status: 403 }
+        { error: primerErrorZod(check.error), campos: check.error.flatten().fieldErrors },
+        { status: 400 }
       );
     }
+    motivo = check.data.motivo;
+  } catch {
+    return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+  }
 
-    if (!ciSolicitada) {
-      return NextResponse.json({ error: "Falta la cédula de identidad" }, { status: 400 });
-    }
-
-    // Un cuerpo vacío o mal formado se rechaza con 400: antes se pasaba a "motivo vacío"
-    // y la supresión seguía adelante, con un motivo que no explicaba nada.
-    let motivo: string;
-    try {
-      const crudo: unknown = await req.json();
-      const check = supresionDatosSchema.safeParse(crudo);
-      if (!check.success) {
-        return NextResponse.json(
-          { error: primerErrorZod(check.error), campos: check.error.flatten().fieldErrors },
-          { status: 400 }
-        );
-      }
-      motivo = check.data.motivo;
-    } catch {
-      return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
-    }
-
+  const cliente = await pool.connect();
+  try {
     await cliente.query("BEGIN");
 
-    const encontrado = await cliente.query<{ id: number }>(
-      `SELECT id FROM personas WHERE upper(cedula_identidad) = $1 FOR UPDATE`,
+    const encontrado = await cliente.query<{ id: number; cedula_identidad: string }>(
+      `SELECT id, cedula_identidad FROM personas WHERE upper(cedula_identidad) = $1 FOR UPDATE`,
       [ciSolicitada]
     );
-    const personaId = encontrado.rows[0]?.id;
-    if (!personaId) {
+    const filaPersona = encontrado.rows[0];
+    if (!filaPersona) {
       await cliente.query("ROLLBACK");
       return NextResponse.json({ error: "Registro no encontrado" }, { status: 404 });
     }
+    const personaId = filaPersona.id;
+    const ciActual = filaPersona.cedula_identidad;
+    const ciSeudonimizada = `99999999${String(personaId).padStart(6, "0")}`;
+
+    const docsRes = await cliente.query<{ nombre_almacenado: string }>(
+      `SELECT d.nombre_almacenado
+         FROM solicitudtitulado_documentos d
+         INNER JOIN solicitudtitulado s ON s.id = d.solicitud_id
+        WHERE s.ci = $1`,
+      [ciActual]
+    );
+    const archivosABorrar = docsRes.rows.map((r) => r.nombre_almacenado);
 
     const ahora = new Date();
 
-    // Anonimización completa + baja lógica, en la misma transacción.
+    // Eliminar tablas satélites ligadas por CI antes de seudonimizar la cédula.
+    await cliente.query(`DELETE FROM carreras WHERE ci = $1`, [ciActual]);
+    await cliente.query(`DELETE FROM solicitudtitulado_historial WHERE ci = $1`, [ciActual]);
+    await cliente.query(`DELETE FROM solicitudtitulado WHERE ci = $1`, [ciActual]);
+    await cliente.query(`DELETE FROM verificaciones WHERE id_persona = $1`, [personaId]);
+    await cliente.query(`DELETE FROM credenciales_persona WHERE id_persona = $1`, [personaId]);
+
+    // Revocar y seudonimizar sesiones asociadas a la persona.
+    await cliente.query(
+      `UPDATE sesiones
+          SET ci = $4,
+              revocada_en = COALESCE(revocada_en, $2),
+              motivo_revocacion = COALESCE(motivo_revocacion, $3)
+        WHERE id_persona = $1`,
+      [personaId, ahora, "Supresión de datos del titular", ciSeudonimizada]
+    );
+
+    // Seudonimización completa + baja lógica, cumpliendo NOT NULL y CHECK ^[0-9]+$.
     await cliente.query(
       `UPDATE personas SET
          nombres_apellidos        = 'DATO SUPRIMIDO',
-         cedula_identidad         = NULL,
+         cedula_identidad         = $4,
          correo_electronico       = NULL,
          telefono                 = NULL,
          redes_sociales           = NULL,
          ciudad_region_trabajo    = NULL,
+         imagen_url               = NULL,
          genero                   = 'PREFIERO_NO_DECIR',
          ocupacion_cargo          = NULL,
          observaciones            = NULL,
          area_especializacion     = NULL,
-         ultimo_curso             = NULL,
+         ultimocurso              = NULL,
          realizo_curso_ultimos_3_anios = NULL,
          nivelestudio             = NULL,
          sector_trabajo_otro      = NULL,
          tiempo_egreso_titulacion_meses = NULL,
          tiempo_insercion_laboral_meses = NULL,
-         -- Se conservan tipo, semestre/año de ingreso y egreso, y los años de
-         -- titulación: son los atributos sin los que los agregados por cohorte y por
-         -- año dejan de ser correctos. No identifican a nadie por sí solos.
          consentimiento_otorgado   = false,
          consentimiento_otorgado_en = NULL,
          consentimiento_version   = NULL,
          consentimiento_ip        = NULL,
+         correo_obligatorio       = false,
          supresion_solicitada_en  = $2,
          supresion_completada_en  = $2,
          supresion_motivo         = $3,
@@ -267,30 +301,31 @@ export async function DELETE(req: NextRequest) {
          estado_registro          = 'RECHAZADO',
          actualizado_en           = $2
        WHERE id = $1`,
-      [personaId, ahora, motivo || "Solicitud del titular"]
-    );
-
-    // Borrar credenciales (hash de contraseña) de la persona.
-    await cliente.query(
-      `DELETE FROM credenciales_persona WHERE id_persona = $1`,
-      [personaId]
-    );
-
-    // Revocar todas las sesiones activas de la persona.
-    await cliente.query(
-      `UPDATE sesiones SET revocada_en = $2, motivo_revocacion = $3 WHERE id_persona = $1 AND revocada_en IS NULL`,
-      [personaId, ahora, "Supresión de datos del titular"]
+      [personaId, ahora, motivo || "Solicitud del titular", ciSeudonimizada]
     );
 
     await cliente.query("COMMIT");
+    invalidarCacheDashboard();
+
+    if (archivosABorrar.length > 0) {
+      await Promise.all(
+        archivosABorrar.map((nombre) => {
+          const destino = path.resolve(SOLICITUDES_STORAGE_DIR, path.basename(nombre));
+          if (path.dirname(destino) === SOLICITUDES_STORAGE_DIR) {
+            return unlink(destino).catch(() => undefined);
+          }
+          return Promise.resolve();
+        })
+      );
+    }
 
     await registrarAuditoria({
       accion: "suprimir_datos",
       entidad: "personas",
       entidadId: personaId,
-      idUsuario: sesion.sub,
+      idUsuario: actorUsuarioId,
       detalles:
-        `Supresión de datos ejecutada sobre CI ${ciSolicitada} · ` +
+        `Supresión y seudonimización ejecutada sobre ficha #${personaId} · ` +
         `solicitada por ${sesion.rol === "admin" ? "administrador" : "el titular"} · ` +
         `motivo: ${motivo || "no indicado"}`,
       req,

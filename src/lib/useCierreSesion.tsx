@@ -14,6 +14,11 @@ function esPaginaInterna(p: string) {
   return (
     p === "/titulados" ||
     p === "/login" ||
+    p === "/registro" ||
+    p === "/recuperar" ||
+    p === "/verificar" ||
+    p === "/cambiar-correo" ||
+    p === "/noticias" ||
     p === "/admin" ||
     p.startsWith("/admin/") ||
     p.startsWith("/kardex/") ||

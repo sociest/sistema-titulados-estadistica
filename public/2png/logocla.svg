@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" width="760" height="220" role="img" aria-label="Seguimiento a Titulados">
+  <defs>
+    <linearGradient id="arrowGradCla" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="cyanLeftCla" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6cc3e6"/>
+      <stop offset="100%" stop-color="#489ec4"/>
+    </linearGradient>
+    <linearGradient id="cyanRightCla" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#8cd6f4"/>
+      <stop offset="100%" stop-color="#63b8de"/>
+    </linearGradient>
+    <filter id="textShadowCla" x="-5%" y="-10%" width="112%" height="125%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#07193d" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <!-- Isotipo 3D con borde blanco institucional sobre fondo transparente -->
+  <g transform="translate(4, 2)">
+    <!-- Contorno adhesivo blanco unificado -->
+    <g fill="#ffffff" stroke="#ffffff" stroke-width="15" stroke-linejoin="round" stroke-linecap="round">
+      <!-- Flecha ascendente -->
+      <polygon points="30,84 62,80 112,38 138,58 182,22 173,13 212,10 198,45 190,34 138,76 112,56 68,91 32,94"/>
+      <!-- Siluetas de las 4 barras 3D -->
+      <polygon points="34,124 58,113 78,122 82,163 60,174 40,164"/>
+      <polygon points="68,94 104,78 132,90 140,170 108,186 80,173"/>
+      <polygon points="116,114 148,99 176,112 182,180 152,196 124,182"/>
+      <polygon points="158,56 198,38 238,54 232,188 202,206 168,188"/>
+    </g>
+
+    <!-- Barra 1: Naranja -->
+    <g stroke="#0c2352" stroke-width="3.5" stroke-linejoin="round">
+      <polygon points="34,124 58,113 78,122 54,133" fill="#fbbf24"/>
+      <polygon points="34,124 54,133 60,174 40,164" fill="#ea580c"/>
+      <polygon points="54,133 78,122 82,163 60,174" fill="#c2410c"/>
+    </g>
+
+    <!-- Barra 2: Verde lima -->
+    <g stroke="#0c2352" stroke-width="3.5" stroke-linejoin="round">
+      <polygon points="68,94 104,78 132,90 96,106" fill="#bef264"/>
+      <polygon points="68,94 96,106 108,186 80,173" fill="#84cc16"/>
+      <polygon points="96,106 132,90 140,170 108,186" fill="#4d7c0f"/>
+    </g>
+
+    <!-- Barra 3: Rojo -->
+    <g stroke="#0c2352" stroke-width="3.5" stroke-linejoin="round">
+      <polygon points="116,114 148,99 176,112 144,127" fill="#f87171"/>
+      <polygon points="116,114 144,127 152,196 124,182" fill="#dc2626"/>
+      <polygon points="144,127 176,112 182,180 152,196" fill="#991b1b"/>
+    </g>
+
+    <!-- Barra 4: Celeste principal -->
+    <g stroke="#0c2352" stroke-width="3.8" stroke-linejoin="round">
+      <polygon points="158,56 198,38 238,54 198,72" fill="#bae6fd"/>
+      <polygon points="158,56 198,72 202,206 168,188" fill="url(#cyanLeftCla)"/>
+      <polygon points="198,72 238,54 232,188 202,206" fill="url(#cyanRightCla)"/>
+    </g>
+
+    <!-- Flecha ascendente naranja -->
+    <polygon
+      points="30,84 62,80 112,38 138,58 182,22 173,13 212,10 198,45 190,34 138,76 112,56 68,91 32,94"
+      fill="url(#arrowGradCla)"
+      stroke="#ffffff"
+      stroke-width="2"
+      stroke-linejoin="round"
+    />
+  </g>
+
+  <!-- Tipografía institucional en alta definición -->
+  <g fill="#ffffff" filter="url(#textShadowCla)" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="900">
+    <text x="262" y="103" font-size="65" letter-spacing="-0.8">SEGUIMIENTO</text>
+    <text x="262" y="174" font-size="65" letter-spacing="0.4">A TITULADOS</text>
+  </g>
+</svg>

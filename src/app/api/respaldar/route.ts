@@ -1,42 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { errorInterno, exigirAdmin } from "@/lib/guards";
-import { sql } from "drizzle-orm";
+import { pool } from "@/db";
+import { errorInterno, exigirAdmin, leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { TABLAS_RESPALDO as TABLAS, literalSql as literal } from "@/lib/backup";
+import { TABLAS_RESPALDO, identificadorSql, literalSql } from "@/lib/backup";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const LOTE_STREAM = 500;
 
 /**
- * GET /api/respaldar → respaldo completo de la base de datos, EN MEMORIA.
+ * GET /api/respaldar → respaldo lógico consistente en STREAMING real (bajo consumo RAM).
  *
- * Por qué NO `pg_dump` (regla `reglas/important.md` §2):
- *   - `pg_dump` es un binario del SISTEMA. La imagen de producción (Node/Next) no lo
- *     incluye, así que el respaldo fallaría justo cuando hace falta.
- *   - `child_process.exec` tampoco es una salida: en despliegues efímeros no hay disco.
- *
- * Por qué esto sí funciona en cualquier entorno:
- *   - Se consulta la base a través del ORM (Drizzle), que ya está en la aplicación.
- *   - Se serializa el contenido en JSON y se entrega como STREAM en memoria.
- *   - No se escribe ningún archivo en el disco: el respaldo nace y muere en el proceso.
- *
- * Solo admin: un respaldo contiene la base completa, con cédulas, correos y teléfonos.
- * Cada descarga queda anotada en `audit_log` como evento `exportar`.
- *
- * Parámetros:
- *   ?formato=json  (por defecto)  → volcado legible y reutilizable por cualquier
- *                                    herramienta sin depender de PostgreSQL
- *   ?formato=sql                  → sentencias INSERT generadas desde los mismos datos
+ * Lee directamente de PostgreSQL mediante paginación keyset (`WHERE pk > $1 LIMIT 500`)
+ * dentro de una transacción `REPEATABLE READ READ ONLY`:
+ *  1. Obtiene nombres reales de columna en PostgreSQL (`snake_case`), generando SQL 100 %
+ *     restaurable con `psql` (más `setval` para secuencias `SERIAL`).
+ *  2. Nunca acumula todas las tablas en un objeto JS gigante: el consumo de RAM se
+ *     mantiene constante (< 5 MB) dentro del límite de 1 GB del contenedor.
  */
-
-/**
- * La lista de tablas y el escapado SQL viven en `@/lib/backup`, para que el
- * script `scripts/backup.sh` y esta ruta compartan la misma definición.
- */
-
 export async function GET(req: NextRequest) {
   const denegado = await exigirAdmin(req);
   if (denegado) return denegado;
+
+  const sesion = await leerSesionVigente(req);
+  if (!sesion || sesion.rol !== "admin") {
+    return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
+  }
 
   try {
     const formato = (new URL(req.url).searchParams.get("formato") ?? "json").toLowerCase();
@@ -47,107 +37,180 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Recuento previo: el respaldo debe poder afirmar cuántos registros respalda.
-    const conteos: Record<string, number> = {};
-    for (const { nombre, tabla } of TABLAS) {
-      const fila = (await db
-        .select({ total: sql<number>`count(*)::int` })
-        .from(tabla as never)) as unknown as Array<{ total: number }>;
-      conteos[nombre] = fila[0]?.total ?? 0;
-    }
+    const cliente = await pool.connect();
+    let liberado = false;
+    const liberar = async () => {
+      if (liberado) return;
+      liberado = true;
+      await cliente.query("COMMIT").catch(() => {});
+      cliente.release();
+    };
 
-    const sello = new Date().toISOString().replace(/[:.]/g, "-");
-    const nombreArchivo = `respaldo_sistema_${sello}.${formato}`;
+    try {
+      await cliente.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
 
-    const codigoAuditoria = registrarAuditoria({
-      accion: "exportar",
-      entidad: "respaldo",
-      detalles: `Respaldo completo en memoria · formato ${formato} · ${
-        Object.entries(conteos)
+      const conteos: Record<string, number> = {};
+      for (const { nombre } of TABLAS_RESPALDO) {
+        const tablaSql = identificadorSql(nombre);
+        const r = await cliente.query<{ total: number }>(
+          `SELECT count(*)::int AS total FROM ${tablaSql}`
+        );
+        conteos[nombre] = r.rows[0]?.total ?? 0;
+      }
+
+      const sello = new Date().toISOString().replace(/[:.]/g, "-");
+      const nombreArchivo = `respaldo_sistema_${sello}.${formato}`;
+      const origen = new URL(req.url).origin;
+
+      const promesaAuditoria = registrarAuditoria({
+        accion: "exportar",
+        entidad: "respaldo",
+        idUsuario: sesion.sub,
+        detalles: `Respaldo completo en streaming · formato ${formato} · ${Object.entries(conteos)
           .map(([t, n]) => `${t}=${n}`)
-          .join(", ")
-      }`,
-      req,
-    });
+          .join(", ")}`,
+        req,
+      });
 
-    const origen = new URL(req.url).origin;
+      if (formato === "json") {
+        const stream = new ReadableStream({
+          async start(control) {
+            const enc = new TextEncoder();
+            const enviar = (s: string) => control.enqueue(enc.encode(s));
+            try {
+              const meta = {
+                respaldo: "Sistema de Seguimiento a Titulados y Egresados",
+                generadoEn: new Date().toISOString(),
+                generadoPor: origen,
+                nota: "Volcado consistente generado en streaming por lotes.",
+                conteos,
+              };
+              // Abrimos el objeto raíz y escribimos metadatos + propiedad "datos" en streaming
+              const cabecera = JSON.stringify(meta, null, 2).slice(0, -2);
+              enviar(`${cabecera},\n  "datos": {\n`);
 
-    if (formato === "json") {
+              for (let idxTabla = 0; idxTabla < TABLAS_RESPALDO.length; idxTabla++) {
+                const { nombre, pk } = TABLAS_RESPALDO[idxTabla]!;
+                const tablaSql = identificadorSql(nombre);
+                const pkSql = identificadorSql(pk);
+                enviar(`    ${JSON.stringify(nombre)}: [`);
+
+                let ultimoPk = 0;
+                let primeraFila = true;
+                while (true) {
+                  const lote = await cliente.query<Record<string, unknown>>(
+                    `SELECT * FROM ${tablaSql} WHERE ${pkSql} > $1 ORDER BY ${pkSql} ASC LIMIT $2`,
+                    [ultimoPk, LOTE_STREAM]
+                  );
+                  if (lote.rows.length === 0) break;
+
+                  const trozo: string[] = [];
+                  for (const fila of lote.rows) {
+                    ultimoPk = Number(fila[pk] ?? ultimoPk);
+                    trozo.push(`${primeraFila ? "\n      " : ",\n      "}${JSON.stringify(fila)}`);
+                    primeraFila = false;
+                  }
+                  enviar(trozo.join(""));
+                }
+
+                const comaTabla = idxTabla < TABLAS_RESPALDO.length - 1 ? "," : "";
+                enviar(`${primeraFila ? "" : "\n    "}]${comaTabla}\n`);
+              }
+
+              enviar("  }\n}\n");
+              await liberar();
+              await promesaAuditoria;
+              control.close();
+            } catch (err) {
+              await liberar();
+              control.error(err);
+            }
+          },
+          async cancel() {
+            await liberar();
+          },
+        });
+
+        return new NextResponse(stream, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${nombreArchivo}"`,
+            "Cache-Control": "no-store, max-age=0",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
+
+      // ── formato SQL: sentencias INSERT válidas con columnas reales de PostgreSQL ──
       const stream = new ReadableStream({
         async start(control) {
           const enc = new TextEncoder();
           const enviar = (s: string) => control.enqueue(enc.encode(s));
+          try {
+            enviar(`-- Respaldo generado por la aplicación el ${new Date().toISOString()}\n`);
+            enviar("BEGIN;\n");
 
-          // Un solo objeto JSON válido: { respaldo, generadoEn, generadoPor, nota, conteos, datos: { tabla: filas, ... } }
-          const datos: Record<string, unknown> = {};
-          for (const { nombre, tabla } of TABLAS) {
-            const filas = (await db.select().from(tabla as never)) as Record<string, unknown>[];
-            datos[nombre] = filas;
+            for (const { nombre, pk, secuencia } of TABLAS_RESPALDO) {
+              const tablaSql = identificadorSql(nombre);
+              const pkSql = identificadorSql(pk);
+              enviar(`\n-- Tabla: ${nombre} (${conteos[nombre] ?? 0} registros)\n`);
+
+              let ultimoPk = 0;
+              let tieneFilas = false;
+              while (true) {
+                const lote = await cliente.query<Record<string, unknown>>(
+                  `SELECT * FROM ${tablaSql} WHERE ${pkSql} > $1 ORDER BY ${pkSql} ASC LIMIT $2`,
+                  [ultimoPk, LOTE_STREAM]
+                );
+                if (lote.rows.length === 0) break;
+                tieneFilas = true;
+
+                const lineas: string[] = [];
+                for (const fila of lote.rows) {
+                  ultimoPk = Number(fila[pk] ?? ultimoPk);
+                  const cols = Object.keys(fila);
+                  const colsSql = cols.map(identificadorSql).join(", ");
+                  const valsSql = cols.map((c) => literalSql(fila[c])).join(", ");
+                  lineas.push(`INSERT INTO ${tablaSql} (${colsSql}) VALUES (${valsSql});\n`);
+                }
+                enviar(lineas.join(""));
+              }
+
+              if (secuencia && tieneFilas) {
+                enviar(
+                  `SELECT setval(pg_get_serial_sequence('${nombre}', '${pk}'), COALESCE((SELECT MAX(${pkSql}) FROM ${tablaSql}), 1), true);\n`
+                );
+              }
+            }
+
+            enviar("\nCOMMIT;\n");
+            await liberar();
+            await promesaAuditoria;
+            control.close();
+          } catch (err) {
+            await liberar();
+            control.error(err);
           }
-
-          const payload = {
-            respaldo: "Sistema de Seguimiento a Titulados y Egresados",
-            generadoEn: new Date().toISOString(),
-            generadoPor: origen,
-            nota: "Volcado en memoria generado desde la aplicación; no requiere pg_dump.",
-            conteos,
-            datos,
-          };
-
-          enviar(JSON.stringify(payload, null, 2));
-          enviar("\n");
-
-          await codigoAuditoria;
-          control.close();
+        },
+        async cancel() {
+          await liberar();
         },
       });
 
       return new NextResponse(stream, {
         status: 200,
         headers: {
-          "Content-Type": "application/json; charset=utf-8",
+          "Content-Type": "application/sql; charset=utf-8",
           "Content-Disposition": `attachment; filename="${nombreArchivo}"`,
           "Cache-Control": "no-store, max-age=0",
           "X-Content-Type-Options": "nosniff",
         },
       });
+    } catch (e) {
+      await liberar();
+      throw e;
     }
-
-    // ── formato SQL: sentencias INSERT listas para restaurar ──────────────────
-    const stream = new ReadableStream({
-      async start(control) {
-        const enc = new TextEncoder();
-        const enviar = (s: string) => control.enqueue(enc.encode(s));
-
-        enviar(`-- Respaldo generado por la aplicación el ${new Date().toISOString()}\n`);
-        enviar("-- No requiere pg_dump: se genera desde el ORM en memoria.\n");
-        enviar("BEGIN;\n");
-        for (const { nombre, tabla } of TABLAS) {
-          const filas = (await db.select().from(tabla as never)) as Record<string, unknown>[];
-          for (const fila of filas) {
-            const columnas = Object.keys(fila);
-            enviar(
-              `INSERT INTO ${nombre} (${columnas.join(", ")}) VALUES (${columnas
-                .map((c) => literal(fila[c]))
-                .join(", ")});\n`
-            );
-          }
-        }
-        enviar("COMMIT;\n");
-        await codigoAuditoria;
-        control.close();
-      },
-    });
-
-    return new NextResponse(stream, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/sql; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${nombreArchivo}"`,
-        "Cache-Control": "no-store, max-age=0",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
   } catch (error: unknown) {
     return errorInterno(error, "api/respaldar");
   }

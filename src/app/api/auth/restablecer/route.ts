@@ -6,15 +6,19 @@ import { db } from "@/db";
 import { credencialesPersona, personas, verificaciones } from "@/db/schema";
 import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { ipDesde, registrarAuditoria } from "@/lib/auditoria";
-import { hashPassword } from "@/lib/password";
+import { hashPasswordAsync } from "@/lib/password";
 import { registrarIntento, verificarLimite } from "@/lib/rateLimit";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
+import { esPasswordIgualACredencial, passwordSeguraSchema } from "@/lib/validaciones";
 
 export const dynamic = "force-dynamic";
 
 const restablecerSchema = z.object({
-  token: z.string().regex(/^[a-f0-9]{64}$/i),
-  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(200),
+  token: z.string().trim().optional(),
+  codigo: z.string().trim().regex(/^[0-9]{6}$/).optional(),
+  password: passwordSeguraSchema,
+}).refine((data) => data.token || data.codigo, {
+  message: "Debe ingresar el código de 6 dígitos o un token válido.",
 });
 
 export async function POST(req: NextRequest) {
@@ -38,7 +42,8 @@ export async function POST(req: NextRequest) {
     }
 
     const ip = ipDesde(req) ?? "desconocida";
-    const tokenHash = createHash("sha256").update(parseo.data.token).digest("hex");
+    const valorVerificador = parseo.data.codigo || parseo.data.token || "";
+    const tokenHash = createHash("sha256").update(valorVerificador).digest("hex");
     const limite = verificarLimite(ip, `restablecer:${tokenHash}`);
     if (!limite.permitido) {
       return NextResponse.json(
@@ -49,7 +54,7 @@ export async function POST(req: NextRequest) {
     registrarIntento(ip, `restablecer:${tokenHash}`);
 
     const ahora = new Date();
-    const passwordHash = hashPassword(parseo.data.password);
+    const passwordHash = await hashPasswordAsync(parseo.data.password);
     const resultado = await db.transaction(async (tx) => {
       const [token] = await tx
         .update(verificaciones)
@@ -90,7 +95,11 @@ export async function POST(req: NextRequest) {
         .limit(1);
 
       if (!persona || persona.correo?.trim().toLowerCase() !== token.destino.trim().toLowerCase()) {
-        return null;
+        return { estado: "invalido" as const };
+      }
+
+      if (esPasswordIgualACredencial(parseo.data.password, persona.ci, persona.correo)) {
+        throw new Error("PASSWORD_IGUAL_CREDENCIAL");
       }
 
       await tx
@@ -100,22 +109,35 @@ export async function POST(req: NextRequest) {
           target: credencialesPersona.idPersona,
           set: { passwordHash, actualizadoEn: ahora },
         });
-      return persona;
+      return { estado: "ok" as const, persona };
+    }).catch((err) => {
+      if (err instanceof Error && err.message === "PASSWORD_IGUAL_CREDENCIAL") {
+        return { estado: "password_debil" as const };
+      }
+      throw err;
     });
 
-    if (!resultado) {
+    if (resultado?.estado === "password_debil") {
       return NextResponse.json(
-        { error: "El enlace no es válido o ya venció. Solicite uno nuevo." },
+        { error: "Por seguridad, la nueva contraseña no puede ser igual a su CI ni a su correo." },
         { status: 400 }
       );
     }
 
-    await revocarSesionesDePersona(resultado.id, "Cambio o configuración de contraseña");
+    if (!resultado || resultado.estado !== "ok") {
+      return NextResponse.json(
+        { error: "El código o enlace no es válido o ya venció (10 min). Solicite uno nuevo." },
+        { status: 400 }
+      );
+    }
+
+    const personaActualizada = resultado.persona;
+    await revocarSesionesDePersona(personaActualizada.id, "Cambio o configuración de contraseña");
     await registrarAuditoria({
       accion: "editar",
       entidad: "credenciales",
-      entidadId: resultado.id,
-      detalles: `Contraseña configurada o restablecida para CI ${resultado.ci}`,
+      entidadId: personaActualizada.id,
+      detalles: `Contraseña configurada o restablecida para CI ${personaActualizada.ci}`,
       req,
     });
 

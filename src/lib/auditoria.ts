@@ -32,12 +32,34 @@ export interface DatosAuditoria {
   req?: NextRequest | null;
 }
 
-/** Extrae la IP del cliente respetando proxies (X-Forwarded-For lo pone Nginx). */
+const IP_SEGURA_REGEX = /^[0-9a-fA-F:.]{2,45}$/;
+
+/** Extrae la IP del cliente validando formato y respetando TRUST_PROXY. */
 export function ipDesde(req?: NextRequest | null): string | null {
   if (!req) return null;
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]!.trim().slice(0, 45);
-  return req.headers.get("x-real-ip")?.slice(0, 45) ?? null;
+  const limpiar = (candidata?: string | null): string | null => {
+    const limpia = (candidata ?? "").trim().slice(0, 45);
+    return IP_SEGURA_REGEX.test(limpia) ? limpia : null;
+  };
+
+  if (process.env.TRUST_PROXY === "true") {
+    const xff = req.headers.get("x-forwarded-for");
+    if (xff) {
+      const partes = xff.split(",").map((s) => s.trim()).filter(Boolean);
+      const ip = limpiar(partes[0]);
+      if (ip) return ip;
+    }
+  }
+
+  const realIp = limpiar(req.headers.get("x-real-ip"));
+  if (realIp) return realIp;
+
+  const xffFallback = req.headers.get("x-forwarded-for");
+  if (xffFallback) {
+    const partes = xffFallback.split(",").map((s) => s.trim()).filter(Boolean);
+    return limpiar(partes[partes.length - 1]);
+  }
+  return null;
 }
 
 /**
@@ -97,10 +119,12 @@ export async function registrarAuditoria(datos: DatosAuditoria): Promise<void> {
   const cliente = await pool.connect();
   try {
     await cliente.query("BEGIN");
+    // Bloqueo transaccional exclusivo: funciona incluso con tabla vacía y bajo READ COMMITTED,
+    // garantizando que dos escritores simultáneos jamás lean el mismo hash_anterior.
+    await cliente.query("SELECT pg_advisory_xact_lock(27001816)");
 
-    // Serializa a los escritores concurrentes y da el hash de la última fila escrita.
     const anterior = await cliente.query<{ hash: string | null }>(
-      "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1 FOR UPDATE"
+      "SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1"
     );
     const hashAnterior = anterior.rows[0]?.hash ?? null;
 
@@ -151,40 +175,65 @@ export interface ResultadoVerificacion {
  * un recorrido completo de la tabla.
  */
 export async function verificarCadenaAuditoria(): Promise<ResultadoVerificacion> {
-  const filas = await pool.query<{
-    id: number;
-    id_usuario: number | null;
-    accion: string;
-    entidad: string;
-    entidad_id: number | null;
-    detalles: string | null;
-    datos_anteriores: string | null;
-    datos_nuevos: string | null;
-    ip: string | null;
-    creado_en: Date;
-    hash_anterior: string | null;
-    hash: string;
-  }>("SELECT * FROM audit_log ORDER BY id ASC");
-
+  const LOTE = 1000;
+  let ultimoId = 0;
+  let total = 0;
   let hashAnterior: string | null = null;
-  for (const f of filas.rows) {
-    const base: Omit<NuevoAuditLogEntry, "hash" | "hashAnterior"> = {
-      idUsuario: f.id_usuario,
-      accion: f.accion as NuevoAuditLogEntry["accion"],
-      entidad: f.entidad,
-      entidadId: f.entidad_id,
-      detalles: f.detalles,
-      datosAnteriores: f.datos_anteriores,
-      datosNuevos: f.datos_nuevos,
-      ip: f.ip,
-      creadoEn: f.creado_en,
-    };
-    const esperado = sha256(`${hashAnterior ?? ""}${cadenaDeHash(base)}`);
-    if (esperado !== f.hash || f.hash_anterior !== hashAnterior) {
-      return { total: filas.rows.length, cadenaIntegra: false, primeraFilaAlterada: f.id };
+  let alterada: number | null = null;
+
+  while (true) {
+    const filas = await pool.query<{
+      id: number;
+      id_usuario: number | null;
+      accion: string;
+      entidad: string;
+      entidad_id: number | null;
+      detalles: string | null;
+      datos_anteriores: string | null;
+      datos_nuevos: string | null;
+      ip: string | null;
+      creado_en: Date;
+      hash_anterior: string | null;
+      hash: string;
+    }>("SELECT * FROM audit_log WHERE id > $1 ORDER BY id ASC LIMIT $2", [ultimoId, LOTE]);
+
+    if (filas.rows.length === 0) break;
+
+    for (const f of filas.rows) {
+      total++;
+      ultimoId = f.id;
+      if (alterada !== null) continue;
+
+      const base: Omit<NuevoAuditLogEntry, "hash" | "hashAnterior"> = {
+        idUsuario: f.id_usuario,
+        accion: f.accion as NuevoAuditLogEntry["accion"],
+        entidad: f.entidad,
+        entidadId: f.entidad_id,
+        detalles: f.detalles,
+        datosAnteriores: f.datos_anteriores,
+        datosNuevos: f.datos_nuevos,
+        ip: f.ip,
+        creadoEn: f.creado_en,
+      };
+      const esperado = sha256(`${hashAnterior ?? ""}${cadenaDeHash(base)}`);
+      if (esperado !== f.hash || f.hash_anterior !== hashAnterior) {
+        alterada = f.id;
+      }
+      hashAnterior = f.hash;
     }
-    hashAnterior = f.hash;
+
+    if (alterada !== null) {
+      const resto = await pool.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM audit_log WHERE id > $1",
+        [ultimoId]
+      );
+      return {
+        total: total + (resto.rows[0]?.n ?? 0),
+        cadenaIntegra: false,
+        primeraFilaAlterada: alterada,
+      };
+    }
   }
 
-  return { total: filas.rows.length, cadenaIntegra: true, primeraFilaAlterada: null };
+  return { total, cadenaIntegra: true, primeraFilaAlterada: null };
 }

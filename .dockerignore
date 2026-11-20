@@ -16,5 +16,11 @@ yarn-debug.log*
 pnpm-debug.log*
 zprob.md
 *.md
+*.zip
+*.tsbuildinfo
+test_*.sh
+smtp_pass*.txt
+.smtp_pass
+pruebascalidad
 C:*
 *\\*

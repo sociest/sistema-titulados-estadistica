@@ -7,7 +7,7 @@ import { z } from "zod";
 export const enumOpcional = <T extends z.ZodTypeAny>(esquema: T) =>
   z.preprocess((v) => (v === "" ? null : v), esquema.nullable());
 
-/** Imagen de noticia: URL http(s) o archivo ya subido al servidor. Rechaza rutas locales. */
+/** Imagen de noticia/perfil: URL https segura o archivo ya subido al servidor. */
 export const urlImagenNoticia = z
   .string()
   .trim()
@@ -15,9 +15,9 @@ export const urlImagenNoticia = z
   .refine(
     (v) =>
       v === "" ||
-      /^https?:\/\/[^\s]+$/i.test(v) ||
+      /^https:\/\/[^\s]+$/i.test(v) ||
       /^\/api\/noticias\/imagen\/[a-f0-9-]{36}\.(jpg|png|webp)$/.test(v),
-    "La imagen debe ser una URL http(s) o un archivo subido desde el sistema"
+    "La imagen debe ser una URL https:// o un archivo subido desde el sistema"
   );
 
 /**
@@ -108,8 +108,7 @@ const textoOpcional = (max = 500) =>
  * un titular que no conteste género quedaría como "PREFIERO_NO_DECIR" sin que nadie se
  * entere. Exigirlos convierte esos dos casos en un error visible y con mensaje.
  */
-export const personaAdminSchema = z
-  .object({
+const personaAdminBase = z.object({
     tipo: tipoEnum,
     nombresApellidos: z.string().trim().min(3, "Nombre muy corto").max(150, "Máximo 150 caracteres"),
     cedulaIdentidad: z
@@ -165,8 +164,13 @@ export const personaAdminSchema = z
     tiempoEgresoTitulacionMeses: z.coerce.number().int().min(0).max(1200).nullable().optional(),
     tiempoInsercionLaboralMeses: z.coerce.number().int().min(0).max(600).nullable().optional(),
     observaciones: textoOpcional(2000),
-  })
-  .superRefine((v, ctx) => {
+}).strict();
+
+/**
+ * Alta manual y corrección por el administrador: reglas completas (planea titularse,
+ * motivo de no titulación, cursos, sector, etc.).
+ */
+export const personaAdminSchema = personaAdminBase.superRefine((v, ctx) => {
     if (v.realizoCursoUltimos3Anos === true && !v.ultimoCurso) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ultimoCurso"], message: "Indique el nombre del curso" });
     }
@@ -344,6 +348,39 @@ export const personaAutogestionSchema = z
   });
 
 /**
+ * Importación masiva (CSV / Excel).
+ *
+ * Solo exige los campos que la plantilla marca como obligatorios:
+ *   · Titulado:  nombres, cédula, género, semestre ingreso, semestre egreso, año egreso,
+ *                año de titulación y modalidad de titulación.
+ *   · Egresado:  nombres, cédula, género, semestre ingreso, semestre egreso y año egreso.
+ *
+ * Todo lo demás es opcional. Si un campo viene con dato, se valida su formato (enum,
+ * correo, año…), pero no se exigen las reglas condicionales del alta manual (planea
+ * titularse, motivo de no titulación, cursos, etc.): esos datos los responden los propios
+ * titulados y egresados, no el archivo que sube el administrador.
+ */
+export const personaImportacionSchema = personaAdminBase.superRefine((v, ctx) => {
+  const datos = v as Record<string, unknown>;
+  const requeridos: Array<[string, string]> = [
+    ["semestreIngreso", "Falta el semestre de ingreso"],
+    ["semestreEgreso", "Falta el semestre de egreso"],
+    ["anioEgreso", "Falta el año de egreso"],
+  ];
+  if (v.tipo === "TITULADO") {
+    requeridos.push(
+      ["anioTitulacion", "Un titulado debe tener año de titulación"],
+      ["modalidadTitulacion", "Un titulado debe tener modalidad de titulación"]
+    );
+  }
+  for (const [campo, mensaje] of requeridos) {
+    if (datos[campo] === null || datos[campo] === undefined || datos[campo] === "") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [campo], message: mensaje });
+    }
+  }
+});
+
+/**
  * Versión vigente del aviso de privacidad.
  *
  * Se incrementa al cambiar el texto del aviso. Se guarda en cada registro, no solo la
@@ -430,6 +467,7 @@ export const personaRegistroPublicoSchema = z
       }),
     }),
     versionAvisoPrivacidad: z.string().trim().min(1).max(20),
+    turnstileToken: z.string().nullable().optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -526,9 +564,60 @@ export const usuarioSchema = z.object({
   estado: z.enum(["activo", "inactivo", "bloqueado"]).default("activo"),
 });
 
-export const usuarioConPasswordSchema = usuarioSchema.extend({
-  password: z.string().min(8, "Mínimo 8 caracteres").max(200),
-});
+/**
+ * Política de contraseñas seguras al crear, restablecer o cambiar credenciales
+ * (las cuentas semilla iniciales conservan su CI únicamente para primer ingreso/pruebas).
+ */
+export const passwordSeguraSchema = z
+  .string()
+  .min(8, "La contraseña debe tener al menos 8 caracteres")
+  .max(200, "Máximo 200 caracteres")
+  .refine(
+    (v) => /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(v) && /[0-9]/.test(v),
+    "La contraseña debe incluir al menos una letra y un número"
+  );
+
+export function esPasswordIgualACredencial(
+  password: string,
+  ci?: string | null,
+  correo?: string | null
+): boolean {
+  const passNorm = password.trim().toLowerCase();
+  if (!passNorm) return false;
+
+  if (ci) {
+    const ciLimpia = ci.trim().toLowerCase();
+    const ciDigitos = ciLimpia.replace(/[^0-9]/g, "");
+    const passDigitos = passNorm.replace(/[^0-9]/g, "");
+    if (ciLimpia && passNorm === ciLimpia) return true;
+    if (ciDigitos.length >= 4 && (passNorm === ciDigitos || passDigitos === ciDigitos && passNorm.length === ciDigitos.length)) {
+      return true;
+    }
+  }
+
+  if (correo) {
+    const correoLimpio = correo.trim().toLowerCase();
+    const parteLocal = correoLimpio.split("@")[0] ?? "";
+    if (correoLimpio && passNorm === correoLimpio) return true;
+    if (parteLocal.length >= 4 && passNorm === parteLocal) return true;
+  }
+
+  return false;
+}
+
+export const usuarioConPasswordSchema = usuarioSchema
+  .extend({
+    password: passwordSeguraSchema,
+  })
+  .superRefine((v, ctx) => {
+    if (esPasswordIgualACredencial(v.password, v.ci, v.correo)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["password"],
+        message: "Por seguridad, la contraseña no puede ser igual al CI ni al correo",
+      });
+    }
+  });
 
 export const loginSchema = z.object({
   ci: z.string().trim().min(1, "Ingrese su CI o correo"),

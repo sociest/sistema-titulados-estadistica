@@ -58,7 +58,7 @@ const puerto =
   leerEnv(path.join(raiz, ".env.local"), "DB_PORT") ||
   "5433";
 
-const url = `postgresql://${user}:${password}@localhost:${puerto}/${dbName}`;
+const url = `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@localhost:${puerto}/${encodeURIComponent(dbName)}`;
 
 // A stdout va SOLO la URL: el valor se inyecta con `$(...)`, que no evalúa
 // `export` y lo tomaría literal como parte de la contraseña. El mensaje para la

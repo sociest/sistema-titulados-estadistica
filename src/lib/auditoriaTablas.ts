@@ -40,11 +40,13 @@ export async function registrarCambio(r: RegistroCambio): Promise<void> {
   const cambios = JSON.stringify(r.cambios);
   const ip = ipDesde(r.req);
 
+  const lockId = tabla === "audit_noticias" ? 27001817 : 27001818;
   const cliente = await pool.connect();
   try {
     await cliente.query("BEGIN");
+    await cliente.query("SELECT pg_advisory_xact_lock($1)", [lockId]);
     const previo = await cliente.query<{ hash: string }>(
-      `SELECT hash FROM ${tabla} ORDER BY id DESC LIMIT 1 FOR UPDATE`
+      `SELECT hash FROM ${tabla} ORDER BY id DESC LIMIT 1`
     );
     const hashAnterior = previo.rows[0]?.hash ?? null;
     const hash = sha256(

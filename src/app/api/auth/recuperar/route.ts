@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomInt } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -62,9 +62,9 @@ export async function POST(req: NextRequest) {
     }
 
     const respuesta = {
+      ok: true,
       mensaje:
-        "Si la CI y el correo coinciden con un registro habilitado, recibirá un enlace para configurar su contraseña. " +
-        "Si no llega en unos minutos, contacte a la Carrera de Estadística.",
+        "Si los datos ingresados coinciden con un registro habilitado, se ha enviado un código de verificación a su correo electrónico. Si no lo visualiza en su bandeja de entrada principal, revise la carpeta de correo no deseado o spam.",
     };
 
     const persona = await db
@@ -76,8 +76,8 @@ export async function POST(req: NextRequest) {
       .from(personas)
       .where(
         and(
-          sql`upper(${personas.cedulaIdentidad}) = ${ci}`,
-          sql`lower(trim(${personas.correoElectronico})) = ${parseo.data.correo.toLowerCase()}`,
+          eq(personas.cedulaIdentidad, ci),
+          sql`lower(${personas.correoElectronico}) = ${parseo.data.correo.toLowerCase()}`,
           eq(personas.activo, true),
           eq(personas.estadoRegistro, "VALIDADO")
         )
@@ -86,13 +86,12 @@ export async function POST(req: NextRequest) {
 
     if (!persona[0]?.correo) return NextResponse.json(respuesta, { status: 202 });
 
-    const token = randomBytes(32).toString("hex");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const expiraEn = new Date(Date.now() + 30 * 60 * 1000);
+    const codigo = randomInt(100000, 1000000).toString();
+    const tokenHash = createHash("sha256").update(codigo).digest("hex");
+    const expiraEn = new Date(Date.now() + 10 * 60 * 1000);
 
     await db
-      .update(verificaciones)
-      .set({ usadaEn: new Date() })
+      .delete(verificaciones)
       .where(
         and(
           eq(verificaciones.idPersona, persona[0].id),
@@ -112,14 +111,11 @@ export async function POST(req: NextRequest) {
     const envio = await enviarCorreoRecuperacion({
       destino: persona[0].correo,
       nombre: persona[0].nombre,
-      token,
+      codigo,
     });
 
     if (!envio.enviado) {
-      await db
-        .update(verificaciones)
-        .set({ usadaEn: new Date() })
-        .where(eq(verificaciones.tokenHash, tokenHash));
+      await db.delete(verificaciones).where(eq(verificaciones.tokenHash, tokenHash));
       console.error(`[recuperacion] No se pudo enviar correo para persona ${persona[0].id}: ${envio.motivo}`);
     }
 

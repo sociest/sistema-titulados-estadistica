@@ -1,559 +1,389 @@
 # Sistema de Seguimiento a Titulados y Egresados
 
-### Carrera de Estadística — Universidad Mayor de San Andrés
+Carrera de Estadística — Universidad Mayor de San Andrés.
 
-Aplicación web para registrar y mantener actualizada la información de titulados y egresados,
-y generar los indicadores consolidados que la carrera presenta ante la comisión de evaluación
-externa de acreditación.
-
----
-
-## 1. Requisitos previos
-
-### 1.1 Herramientas
-
-| Herramienta       | Versión       | Para qué                              | ¿Obligatoria?              |
-| ----------------- | ------------- | ------------------------------------- | -------------------------- |
-| Node.js           | **20 LTS**    | Runtime de la aplicación              | Sí (o 18.17+)              |
-| pnpm              | 10 o superior | Gestor de paquetes                    | Sí                         |
-| PostgreSQL        | **16**        | Base de datos                         | Sí (por Docker o nativo)   |
-| Docker Compose v2 | 2.20+         | Orquestación del `docker-compose.yml` | No, si usás el escenario 4 |
-| Opcional          |               |                                       |                            |
-| Docker            | 24 o superior | Solo para los escenarios 2 y 3        | No, si usás el escenario 4 |
-
-```bash
-node --version     # v20.x
-pnpm --version     # 10.x o superior
-psql --version     # PostgreSQL 16.x        (solo escenario 4)
-docker compose version   # v2.20+             (solo escenarios 2 y 3)
-```
-
-> **Node 22 puede funcionar**, pero la imagen de Docker usa `node:20-alpine`. Si `pnpm install`
-> falla por scripts de compilación, revisá `.npmrc` y `pnpm-workspace.yaml`, que ya
-> declaran `onlyBuiltDependencies: [esbuild, unrs-resolver]` para pnpm 10+.
-
-### 1.2 Permisos de Docker (solo Linux, escenarios 2 y 3 Sin docker compose total)
-
-Tu usuario debe poder hablar con el socket de Docker, o cada comando te va a fallar con
-`permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`:
-
-```bash
-sudo usermod -aG docker $USER
-newgrp docker            # o cerrá y volvé a iniciar sesión
-docker ps                # debe listar sin error
-```
-
-### 1.3 Puertos que usa el sistema
-
-| Puerto | Quién lo usa               | Nota                                          |
-| ------ | -------------------------- | --------------------------------------------- |
-| 3000   | Next.js                    | La aplicación                                 |
-| 80     | Traefik                    | Solo escenario 2 (todo en Docker)             |
-| 5433   | PostgreSQL en Docker       | Puerto **en el host**, ver `.env` (`DB_PORT`) |
-| 5432   | PostgreSQL nativo del host | Solo escenario 4                              |
-
-> **Por qué `5433` y no `5432`:** si tenés un PostgreSQL nativo escuchando en `localhost:5432`
-> (común en Ubuntu/Debian), el contenedor no puede publicar ahí. Por eso `.env` trae
-> `DB_PORT=5433`. **Dentro** de la red de Docker la app siempre talks a `db:5432`.
+Aplicación Next.js para registrar titulados y egresados y publicar los indicadores de
+acreditación. La carpeta del proyecto es **`sistema-titulados-estadistica-main`** (antes
+se llamaba `vcl2`); los comandos de este README usan ese nombre.
 
 ---
 
-## 2. Escenario 1 — Todo con Docker Compose (app + BD + proxy)
+## 1. Requisitos
 
-El sistema completo orquestado con Docker Compose. Es el camino más reproducible y el
-recomendado para producción. No necesitás Node ni PostgreSQL instalados en el host.
+| Herramienta                | Versión    | Uso                                       |
+| -------------------------- | ---------- | ----------------------------------------- |
+| Docker + Docker Compose v2 | 24 / 2.20+ | Despliegue recomendado (app + PostgreSQL) |
+| Node.js                    | 20 LTS     | Solo desarrollo con `pnpm`                |
+| pnpm                       | 10+        | Solo desarrollo                           |
+| PostgreSQL                 | 16         | Solo si se usa una base nativa            |
+| Python                     | 3.11+      | Solo para las pruebas de calidad          |
 
-**Arquitectura:**
+Puertos:
 
-- **Proxy inverso:** Traefik (`traefik:v2.11`) escuchando en el puerto `80` y aplicando
-  headers de seguridad (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-  `X-XSS-Protection`, `Referrer-Policy`).
-- **Aplicación web:** Next.js 14 en `node:20-alpine`, ejecutándose como el usuario no
-  privilegiado `nextjs` (UID 1001). Expuesta en `3000`.
-- **Base de datos:** PostgreSQL 16 Alpine con persistencia en el volumen `postgres_data`.
-- **Límites de RAM:** 1 GB para `app` y `db`, 256 MB para `traefik`. Escalable en
-  producción a 2.5–3 GB modificando `deploy.resources.limits.memory`.
+| Puerto | Servicio                      | Nota                                                              |
+| ------ | ----------------------------- | ----------------------------------------------------------------- |
+| 3001   | App (host)                    | `APP_HOST_PORT` en `.env`                                         |
+| 80     | Traefik opcional              | Solo con `--profile proxy`                                        |
+| 5433   | PostgreSQL (host)             | `DB_PORT`, escucha solo en `127.0.0.1`                            |
+| 3000   | Next.js dentro del contenedor | No se publica directo; en el host suele estar ocupado por Dokploy |
 
-### 2.1 Linux (Ubuntu/Debian)
+---
+
+## 2. Despliegue con Docker (recomendado)
+
+### 2.1 Archivos que deben existir antes del build
+
+| Archivo            | ¿Obligatorio?                   | Para qué                               | Se versiona |
+| ------------------ | ------------------------------- | -------------------------------------- | ----------- |
+| `.env`             | Sí                              | Variables de app, BD, SMTP y URLs      | No          |
+| `smtp_pass.txt`    | Sí (por el montaje del compose) | Respaldo local de la contraseña SMTP   | No          |
+| `datos_prueba.csv` | No                              | Solo para `pnpm seed:masivo`           | No          |
+| `storage/`         | No                              | El Dockerfile y los volúmenes lo crean | No          |
+| `backups/`         | No                              | Lo crea `scripts/backup.sh`            | No          |
+
+Si `smtp_pass.txt` no existe, Docker crea un **directorio** vacío en esa ruta y el
+montaje queda inútil. Crear el archivo antes de levantar, incluso si se deja vacío:
 
 ```bash
-cd sistema1_5
+printf '%s\n' 'CLAVE_SMTP' > smtp_pass.txt   # o: SMTP_PASS=CLAVE_SMTP
+chmod 600 smtp_pass.txt
+```
 
-# 1. Crear tu .env a partir de la plantilla (la plantilla NO tiene datos reales)
+El archivo puede contener solo la clave o una línea `SMTP_PASS=...`; las líneas con `#`
+se ignoran. `SMTP_PASS` en `.env` tiene prioridad si no empieza con `$`.
+
+### 2.2 Pasos
+
+```bash
+cd sistema-titulados-estadistica-main
+
+# 0. Archivos base (antes de construir)
 cp .env.example .env
-#    Completá en .env como mínimo DB_PASSWORD y SESSION_SECRET (ver comentarios del archivo).
-#    DB_PORT ya viene en 5433; cambialo solo si tenés el puerto ocupado.
-nano .env
+nano .env        # DB_PASSWORD, SESSION_SECRET, URLs, SMTP_* y Turnstile
+printf '%s\n' 'CLAVE_SMTP' > smtp_pass.txt
+chmod 600 .env smtp_pass.txt
 
-# 2. Levantar la app y la BD
+# 1. Construir la imagen (los NEXT_PUBLIC_* se graban en el build)
+docker compose build app
+
+# 2. Levantar base de datos y aplicación
 docker compose up -d
 
-# 3. Crear el esquema en la base (tablas, índices, enums)
-docker compose exec app pnpm db:migrate
-
-# 4. Cargar los datos mínimos (admin + noticias + 10 ejemplos)
-docker compose exec app pnpm seed
-
-# 5. Acceder
-# - Vía proxy Traefik (puerto estándar):
-open http://localhost
-# - Directo al servicio Next.js:
-open http://localhost:3000
+# 3. Verificar
+docker compose ps -a
+docker compose stats --no-stream          # consumo de todos los servicios
+docker compose stats --no-stream app      # solo la aplicación
+docker compose logs --tail=100 app
+curl -sI http://localhost:3001/ | head -3
 ```
 
-### 2.2 Windows (PowerShell o WSL)
-
-Sobre **WSL 2**, los comandos son idénticos a los de Linux; abrí la terminal de Ubuntu y
-seguí los pasos de 2.1. Sobre **Docker Desktop con PowerShell**:
-
-```powershell
-cd sistema1_5
-notepad .env                # ajustá DB_PORT si el 5433 está ocupado
-docker compose up -d
-docker compose exec app pnpm db:migrate
-docker compose exec app pnpm seed
-start http://localhost
-start http://localhost:3000
-```
-
-### 2.3 Datos de prueba (opcional)
+`docker compose stats --no-stream` imprime una foto fija y no deja la terminal
+bloqueada. Alternativa equivalente en Bash/WSL:
 
 ```bash
-# Generar el CSV (desde el host, necesita Python)
-pnpm generar:datos            # 290 personas: 135 titulados, 155 egresados
-
-# Copiarlo al contenedor y sembrar en lote
-docker compose cp datos_prueba.csv app:/app/datos_prueba.csv
-docker compose exec app pnpm seed:masivo
+docker stats --no-stream $(docker compose ps -q)
 ```
 
-Para volver a los datos mínimos:
+Usar esa forma solo si hay contenedores levantados: si el proyecto está apagado,
+`docker compose ps -q` queda vacío y `docker stats` mostraría los contenedores de
+**otros** proyectos.
 
-```bash
-docker compose exec app pnpm seed -- --reset
+Antes del build solo hacen falta `.env` y `smtp_pass.txt`. `datos_prueba.csv` se usa
+después, con el sistema ya levantado, y `storage/`/`backups/` se crean solos.
+
+Al arrancar, el contenedor:
+
+1. Espera a que PostgreSQL responda.
+2. Aplica las migraciones Drizzle (`AUTORUN_MIGRATIONS=true`).
+3. Ejecuta el seed si `AUTORUN_SEED=true`. El seed **no duplica datos**: si ya hay
+   personas, solo asegura la cuenta Kardex.
+
+Acceso: `http://localhost:3001` (redirige a `/titulados`).
+
+### 2.3 Variables obligatorias
+
+`docker compose` no arranca si faltan:
+
+```dotenv
+DB_PASSWORD=...                 # openssl rand -hex 24
+SESSION_SECRET=...              # openssl rand -hex 32
+NEXT_PUBLIC_APP_URL=https://tu-dominio.umsa.bo
+SITIO_URL=https://tu-dominio.umsa.bo
 ```
 
-### 2.4 Monitoreo y apagado
+`NEXT_PUBLIC_APP_URL`, `SITIO_URL` y las claves de Turnstile se graban al **construir**.
+Si cambian, hay que reconstruir (`docker compose build app`), no solo reiniciar.
+En producción deben usar `https://`; de eso depende que la cookie de sesión se marque
+`Secure`.
+
+### 2.4 Volumen de la base de datos
+
+El volumen se llama `sistitulados_postgres_data` (`PG_VOLUME_NAME` en `.env`). Si el
+servidor ya tenía datos en otro volumen, apuntar `PG_VOLUME_NAME` al volumen existente
+**antes** de levantar, o restaurar un respaldo. Si no coincide, se crea una base vacía.
+
+### 2.5 Windows
+
+Ejecutar los mismos comandos desde WSL 2 (Ubuntu). En PowerShell nativo usar `curl.exe`
+y Docker Desktop; los scripts `:docker` de `package.json` requieren `sh` (WSL o Git Bash).
+
+### 2.6 Apagado y limpieza
 
 ```bash
-docker stats --no-stream                 # uso de RAM por contenedor
-docker compose logs -f app               # logs de la aplicación
-
-docker compose down                      # apagar, conserva la BD
-docker compose down -v                   # apagar y BORRAR la base de datos
+docker compose down        # apaga y conserva los datos
+docker compose down -v     # apaga y borra volúmenes (BD + adjuntos)
 ```
 
 ---
 
-## 3. Escenario 2 — App con pnpm + Base de datos en Docker
+## 3. Traefik opcional
 
-Levantás Next.js en tu máquina con `pnpm dev` (recarga en caliente, útil para desarrollo),
-pero la base de datos corre en un contenedor. Common entre ambos: PostgreSQL 16.
-
-> **No edites `.env.local` a mano para este escenario.** Los comandos `:docker` ya inyectan
-> el `DATABASE_URL` correcto leyendo `DB_PORT` de `.env` y las credenciales de
-> `docker-compose.yml`. Así `.env.local` puede seguir apuntando a tu PostgreSQL nativo
-> (escenario 3) sin que uno pise al otro, y no se puede desincronizar de los valores que
-> realmente usa el contenedor.
-
-> **El `-p sistitulados-db` de `docker-compose.db.yml` no es opcional.** Compose deriva el
-> nombre del proyecto del nombre del directorio, así que sin `-p` ese archivo y el
-> `docker-compose.yml` principal serían el mismo proyecto y al levantar uno, Compose
-> borraría el contenedor del otro como "orphan". Con `-p` cada uno tiene su proyecto,
-> sus contenedores y su volumen.
-
-### 3.1 Linux (Ubuntu/Debian)
+Traefik está en `docker-compose.yml` con el perfil `proxy`, desactivado por defecto.
+No afecta a un despliegue normal ni a Dokploy (Dokploy ya trae su propio proxy).
 
 ```bash
-cd sistema1_5
+# App + BD + Traefik en el puerto 80
+docker compose --profile proxy up -d
 
-# 1. Arrancar SOLO la base de datos
-docker compose up -d db
-
-# 2. Verificar que quedó healthy
+# Verificar
+curl -sI http://localhost/ | head -3
 docker compose ps
-#    sistitulados_db   postgres:16-alpine   Up (healthy)   0.0.0.0:5433->5432/tcp
-
-# 3. Crear el esquema (sobre la BD del contenedor)
-pnpm db:migrate:docker
-
-# 4. Cargar los datos mínimos
-pnpm seed:docker
-
-# 5. Arrancar la app en modo desarrollo
-pnpm dev:docker           # http://localhost:3000
 ```
 
-Si preferís hacerlo a mano, el equivalente es:
+Con Traefik activo se puede entrar por `http://localhost` (puerto 80) o por
+`http://localhost:3001`. Para desactivarlo:
 
 ```bash
-export DATABASE_URL=$(node scripts/db-url.mjs)   # imprime la URL por stdout
-pnpm db:migrate && pnpm seed && pnpm dev
+docker compose --profile proxy down
 ```
 
-### 3.2 Windows (WSL y nativo)
+Si el puerto 80 está ocupado, cambiar `TRAEFIK_PORT` en `.env`. En producción con
+HTTPS, terminar TLS en el proxy institucional (Nginx/Traefik con certificados) y dejar
+que él reenvíe a la app.
 
-En **WSL 2**, los pasos son idénticos a 3.1.
+---
 
-Con **Docker Desktop en Windows y Node nativo (sin WSL)**, los scripts `:docker` usan
-`sh -c`, que en `cmd.exe` no existe. Usá Git Bash o WSL, o hacelo a mano en PowerShell:
+## 4. `smtp_pass.txt`
 
-```powershell
-cd sistema1_5
-docker compose up -d db
+El envío de correo usa la contraseña SMTP definida en `.env` (`SMTP_PASS`). Además,
+`docker-compose.yml` monta el archivo local `smtp_pass.txt` en `/app/smtp_pass.txt`
+(solo lectura), como respaldo para el encargado del servidor.
 
-# PowerShell no expande `$(...)`, así que se arma la variable explícita.
-# El puerto es DB_PORT de `.env` (5433 si tenés PostgreSQL nativo en 5432).
-$env:DATABASE_URL = "postgresql://seguit_app:TU_DB_PASSWORD@localhost:5433/sistitulados_db"   # la DB_PASSWORD de tu .env
+- El archivo **no se versiona**: está en `.gitignore` y `.dockerignore`.
+- Crearlo en la raíz del proyecto antes de levantar:
+
+```bash
+printf '%s\n' 'CLAVE_SMTP' > smtp_pass.txt
+chmod 600 smtp_pass.txt
+```
+
+- Si no existe, Docker crea un directorio vacío en esa ruta; el sistema sigue
+  funcionando con `SMTP_PASS` y el enlace queda en el log si no hay configuración.
+
+---
+
+## 5. Scripts disponibles
+
+### 5.1 `package.json`
+
+| Script                        | Qué hace                                                  |
+| ----------------------------- | --------------------------------------------------------- |
+| `pnpm dev`                    | Next.js en desarrollo contra la BD de `.env`              |
+| `pnpm dev:docker`             | Next.js nativo + PostgreSQL del compose de desarrollo     |
+| `pnpm build` / `pnpm start`   | Build y ejecución de producción nativa                    |
+| `pnpm lint`                   | ESLint                                                    |
+| `pnpm db:generate`            | Genera migraciones desde `src/db/schema.ts`               |
+| `pnpm db:migrate`             | Aplica migraciones                                        |
+| `pnpm db:migrate:docker`      | Migraciones contra la BD de `docker-compose.db.yml`       |
+| `pnpm db:migrate:prod`        | Migraciones dentro del contenedor (`scripts/migrate.mjs`) |
+| `pnpm db:push`                | Sincroniza el esquema sin migración (solo desarrollo)     |
+| `pnpm db:studio`              | Drizzle Studio                                            |
+| `pnpm seed`                   | Datos mínimos (admin, Kardex, 10 personas, noticias)      |
+| `pnpm seed -- --reset`        | Borra y recarga los datos de prueba (solo desarrollo)     |
+| `pnpm seed:docker`            | Seed contra la BD de desarrollo del compose               |
+| `pnpm seed:masivo`            | Carga masiva desde `datos_prueba.csv`                     |
+| `pnpm backup`                 | Respaldo vía `/api/respaldar` (requiere admin)            |
+| `pnpm correo:probar <correo>` | Envía un correo de prueba                                 |
+| `pnpm test:calidad`           | Ejecuta la suite de calidad y seguridad                   |
+| `pnpm docker:proxy`           | Levanta app + BD + Traefik                                |
+| `pnpm docker:reset`           | `docker compose down -v`                                  |
+
+### 5.2 Scripts sueltos
+
+| Archivo                    | Uso                                       |
+| -------------------------- | ----------------------------------------- |
+| `scripts/seed.ts`          | Seed mínimo; `--reset` solo en desarrollo |
+| `scripts/seed_masivo.ts`   | Carga por lotes desde CSV                 |
+| `scripts/seed_kardex.ts`   | Asegura la cuenta Kardex                  |
+| `scripts/migrate.mjs`      | Aplica migraciones (lo usa el entrypoint) |
+| `scripts/db-url.mjs`       | Imprime la `DATABASE_URL` de desarrollo   |
+| `scripts/probar-correo.ts` | Prueba SMTP desde la terminal             |
+| `scripts/backup.sh`        | Respaldo y rotación de archivos           |
+| `scripts/aplicar-smtp.mjs` | Copia `smtp_pass.txt` al `.env`           |
+
+Dentro del contenedor, los mismos comandos se ejecutan con `docker compose exec`:
+
+```bash
+docker compose exec app npx tsx scripts/seed.ts
+docker compose exec app node scripts/migrate.mjs
+```
+
+---
+
+## 6. Pruebas de calidad
+
+La suite está en `pruebascalidad/` y **no necesita base de datos**: analiza el código,
+las rutas y la configuración.
+
+```bash
+# Linux / macOS / WSL
+python3 pruebascalidad/test_calidad.py
+# Windows
+python pruebascalidad/test_calidad.py
+# o
+pnpm test:calidad
+```
+
+Cubre cuatro bloques:
+
+- **Estructura**: carpetas `app`, `components`, `db`, `lib`.
+- **Seguridad**: rutas públicas con mitigación, guardas de sesión, hash de contraseñas,
+  cookies, rate limit, CSRF, auditoría, SQL injection, XSS y secretos fuera del repo.
+- **Calidad**: manejo de errores, TypeScript, lint, responsive, accesibilidad,
+  paginación y pruebas.
+- **Funcionalidad**: KPIs, exportación, importación, PDF, backups, migraciones, seed y
+  módulos de admin/portal.
+
+Resultado actual: **91/91 pruebas superadas**. El número crece cuando se agregan rutas
+API nuevas (cada ruta se audita). Genera:
+
+```
+pruebascalidad/resultados.json
+pruebascalidad/resultadopruebas.md
+pruebascalidad/resultadopruebas.docx   (si python-docx está instalado)
+```
+
+Las rutas públicas se declaran en `RUTAS_PUBLICAS_POR_DISENO` dentro del script: si se
+agrega una ruta pública, hay que documentar ahí su mitigación para que la prueba la
+acepte.
+
+---
+
+## 7. Desarrollo con pnpm
+
+### 7.1 App nativa + PostgreSQL en Docker
+
+```bash
+docker compose -p sistitulados-db -f docker-compose.db.yml up -d
+pnpm install
+pnpm dev:docker          # http://localhost:3000
+```
+
+El `-p sistitulados-db` evita que este compose pise los contenedores del compose
+principal. La app usa `localhost:5433`; dentro de Docker siempre es `db:5432`.
+
+### 7.2 Todo nativo
+
+Configurar `DATABASE_URL` en `.env` apuntando a PostgreSQL local y ejecutar:
+
+```bash
 pnpm db:migrate
 pnpm seed
 pnpm dev
 ```
 
-> **¿Por qué `localhost:5433` y no `db:5432`?** El host DNS `db` solo resuelve dentro de la
-> red del contenedor. Desde tu máquina tenés que usar `localhost` + el puerto publicado
-> (`DB_PORT`). Usar `db:5432` desde el host da `getaddrinfo ENOTFOUND db`.
+### 7.3 `.env`
 
-### 3.3 Apagado
-
-```bash
-docker compose stop db        # apagar la BD, conserva el volumen
-docker compose down db        # igual, elimina el contenedor
-docker compose down -v        # apagar y borrar los datos
-```
-
-Y si usaste `docker-compose.db.yml` para la base:
-
-```bash
-docker compose -p sistitulados-db -f docker-compose.db.yml down
-```
-
-> Los dos `db` comparten `DB_PORT`, así que **no pueden estar levantados a la vez**: el
-> segundo falla con `Bind for :::5433 failed: port is already allocated`. Bajá uno antes de
-> levantar el otro.
+`.env` es la única fuente de variables (no `.env.local`). `.env.example` solo trae
+nombres y valores vacíos. Nunca subir `.env` ni `smtp_pass.txt`.
 
 ---
 
-## 4. Escenario 3 — App con pnpm + PostgreSQL local (sin Docker)
+## 8. Dokploy
 
-Todo directo en tu máquina. Es el escenario más rápido para trabajar y el que no depende
-de que Docker esté andando.
+1. Crear el servicio con `docker-compose.dokploy.yml`.
+2. Cargar en **Environment**: `DB_PASSWORD`, `SESSION_SECRET`, `DB_NAME`, `DB_USER`,
+   `NEXT_PUBLIC_APP_URL`, `SITIO_URL`, Turnstile y SMTP.
+3. Asignar el dominio al servicio `app`, puerto **3000**.
+4. Hacer **Rebuild** (no solo reiniciar) cuando cambien variables `NEXT_PUBLIC_*`.
 
-### 4.1 Instalar y configurar
-
-```bash
-cd sistema1_5
-
-# 1. Dependencias
-pnpm install
-
-# 2. Variables de entorno
-cp .env.example .env           # en Windows: copy .env.example .env
-#    Editá .env: completá DATABASE_URL (ver 4.3) y SESSION_SECRET
-
-# 3. Crear la base de datos (una sola vez)
-sudo -u postgres createdb sistitulados_db
-#    o, entrando a psql:
-sudo -u postgres psql
-#    CREATE DATABASE sistitulados_db;
-
-# 4. Aplicar el esquema (10 tablas, índices y 13 tipos ENUM)
-pnpm db:migrate
-
-# 5. Cargar los datos mínimos (admin + noticias + 10 ejemplos)
-pnpm seed
-
-# 6. Arrancar
-pnpm dev                       # http://localhost:3000
-```
-
-### 4.2 Datos de prueba (opcional)
-
-```bash
-pnpm generar:datos             # genera datos_prueba.csv (290 personas)
-pnpm seed:masivo               # los carga en la base por lotes
-```
-
-La semilla es **idempotente**: si las cédulas ya existen, las omite y no duplica nada.
-
-### 4.3 `.env` — la única fuente de verdad
-
-Todos los comandos (`pnpm dev`, `pnpm db:*`, `pnpm seed*`) leen `DATABASE_URL` de ahí.
-Si el archivo no existe o le falta la variable, los scripts fallan con un error explícito
-en vez de conectarse calladamente a otra base.
-
-```dotenv
-DATABASE_URL=postgresql://postgres:TU_CLAVE@localhost:5432/sistitulados_db
-```
-
-Comprobación rápida:
-
-```bash
-psql "postgresql://postgres:TU_CLAVE@localhost:5432/sistitulados_db" -c "select 1;"
-```
-
-Si responde una fila, la conexión funciona.
-
-### 4.4 Otros comandos
-
-```bash
-pnpm db:generate    # genera migraciones nuevas cuando cambiás src/db/schema.ts
-pnpm db:migrate     # aplica las migraciones pendientes
-pnpm db:push        # empuja el estado actual del esquema (SOLO desarrollo)
-pnpm db:studio      # abre Drizzle Studio en el navegador
-pnpm build          # build de producción
-pnpm start          # ejecuta el build de producción
-pnpm seed -- --reset  # borra y recarga los datos mínimos (solo desarrollo)
-pnpm test           # tests
-pnpm backup         # backup de la base
-```
-
-Los comandos `dev:docker`, `db:migrate:docker`, `seed:docker` y `seed:masivo:docker` son los
-equivalentes del **escenario 2** (sección 3): idénticos pero apuntando a la base del
-contenedor en lugar de a tu PostgreSQL local.
-
-```
----
-
-## 5. `SESSION_SECRET` — el secreto de la sesión
-
-### Qué es
-
-La sesión se guarda en una cookie `httpOnly` firmada con HMAC-SHA256. El secreto con el que se
-firma **nunca sale del servidor** y **nunca se manda al navegador**. Si alguien no tiene la
-cookie válida, no puede convertirse en administrador: no hay nada que falsificar desde la consola.
-
-### En desarrollo
-
-`scripts/seed.ts` **no necesita** este valor: en `NODE_ENV !== "production"` la aplicación usa un
-secreto de desarrollo. Por eso `pnpm dev` funciona apenas se instala.
-
-### En producción — OBLIGATORIO
-
-La aplicación **lanza un error** al arrancar si `NODE_ENV=production` y falta `SESSION_SECRET`:
-```
-
-Error: SESSION_SECRET es obligatorio en producción y debe tener al menos 32 caracteres.
-
-```
-### Cómo generarlo
-
-```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
-```
-
-Sale algo como `aVrG0YqCNcUwk9OgiK7LxX0g03nMZDMtyCtWd6hrObSuIFYIZuM_5l4IRWcu7WId` (64 caracteres).
-
-### Cómo usarlo
-
-Opción A — en el archivo `.env` (local) o en la pestaña *Environment* de Dokploy (producción):
-
-```dotenv
-SESSION_SECRET=aVrG0YqCNcUwk9OgiK7LxX0g03nMZDMtyCtWd6hrObSuIFYIZuM_5l4IRWcu7WId
-```
-
-Opción B — como variable de entorno del proceso, sin dejar el secreto en ningún archivo:
-
-```bash
-# Linux, al arrancar con pm2
-SESSION_SECRET=$(openssl rand -base64 48) pm2 start npm -- start --name seguimiento
-
-# O en un servicio de systemd, con un archivo 600:
-sudo install -m 600 /dev/null /etc/seguit/secret.env
-echo "SESSION_SECRET=$(openssl rand -base64 48)" | sudo tee -a /etc/seguit/secret.env
-```
-
-### Reglas
-
-- **Nunca** subirlo al repositorio. Ya está cubierto: `.gitignore` y `.dockerignore` ignoran `.env*` (solo se versiona `.env.example`, sin valores reales).
-- Si cambia, **todas las sesiones abiertas quedan invalidadas** y hay que volver a iniciar sesión.
-- Cada entorno (local, pruebas, producción) debe tener **su propio** secreto.
-- Regenerarlo es la forma de "echar" a todos los que tuvieran sesión abierta.
+Los volúmenes `solicitudes_dokploy_storage` y `noticias_dokploy_storage` conservan los
+archivos entre despliegues. No borrarlos.
 
 ---
 
-## 6. Estructura del proyecto
+## 9. Usuarios del seed
 
-```
-sistema1_5/
-├── drizzle/                     Migraciones versionadas (generadas, NO editar a mano)
-│   ├── 0000_init_esquema_completo.sql
-│   └── meta/
-├── scripts/
-│   ├── seed.ts                  Datos mínimos: admin + noticias + 10 ejemplos
-│   └── seed_masivo.ts           Carga por lotes desde CSV
-├── scripts_generar_seed.py      Generador de 290 personas (135 titulados, 155 egresados)
-├── src/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── auth/login/      Iniciar sesión
-│   │   │   ├── auth/sesion/     Ver sesión actual (GET) y cerrarla (DELETE)
-│   │   │   ├── dashboard/       KPIs y series del dashboard
-│   │   │   ├── exportar/        Excel y CSV en memoria
-│   │   │   ├── exportar/pdf/    Reporte PDF en memoria
-│   │   │   ├── importar/        Importación masiva Excel/CSV en memoria
-│   │   │   ├── noticias/        CRUD de publicaciones
-│   │   │   ├── personas/        Módulo 1: listado, alta, edición
-│   │   │   ├── usuarios/        Gestión de administradores
-│   │   │   └── auditoria/       Registro de actividad
-│   │   ├── admin/
-│   │   │   ├── dashboard/       Dashboard privado (KPIs, gráficos, exportaciones)
-│   │   │   ├── personas/        Registro administrativo de titulados y egresados
-│   │   │   ├── usuarios/        Usuarios administradores
-│   │   │   ├── auditoria/       Consulta del registro de actividad
-│   │   │   ├── importar/        Pantalla de importación masiva
-│   │   │   └── noticias/        Gestión de noticias y convocatorias
-│   │   ├── portal/titulado/     Formulario del titulado
-│   │   ├── portal/egresado/     Formulario del egresado
-│   │   ├── kpis/               Dashboards públicos
-│   │   ├── noticias/           Noticias públicas
-│   │   ├── titulados/          Página pública del sistema
-│   │   └── login/              Inicio de sesión
-│   ├── components/              Navbar, PublicDashboard, KpiNavigation, LoadingOverlay
-│   ├── db/                      schema.ts (tablas) e index.ts (conexión)
-│   │   └── env.ts               Carga .env.local / .env antes de armar el Pool
-│   ├── lib/
-│   │   ├── sesion.ts            Cookie firmada (crear/verificar token)
-│   │   ├── password.ts          Hash y verificación de contraseñas (scrypt)
-│   │   ├── guards.ts            Autorización de los API Routes
-│   │   ├── validaciones.ts      Esquemas zod
-│   │   ├── auditoria.ts         Escritura del registro de actividad
-│   │   ├── reportePdf.ts        Generación del PDF en memoria
-│   │   ├── csv.ts               Lector de CSV en memoria
-│   │   ├── auth.tsx             Contexto de sesión en el cliente
-│   │   ├── useCierreSesion.tsx  Confirmación de cierre de sesión
-│   │   └── sectorOtro.ts        Validación del campo "Otro"
-│   └── middleware.ts            Protección de /admin/** y /portal/** en el servidor
-├── tests/                       Pruebas
-├── .env.example                 Plantilla de variables (sin valores reales)
-└── .env                         Tus variables reales (cp .env.example .env) — NO se sube
-```
+| Usuario         | Contraseña  | Rol    |
+| --------------- | ----------- | ------ |
+| `adm@gen.bo`    | `adm`       | Admin  |
+| `kardex@gen.bo` | `kardex123` | Kardex |
+
+Cambiar la contraseña del admin antes de entregar el sistema.
+Titulados/egresados de ejemplo: CI `6893412` y `8341920`.
 
 ---
 
-## 7. Usuarios y acceso
+## 10. Copias de seguridad
 
-### El administrador
-
-Lo crea `pnpm seed`:
-
-| Campo      | Valor        |
-| ---------- | ------------ |
-| Correo     | `adm@gen.bo` |
-| Contraseña | `adm`        |
-| Rol        | `admin`      |
-
-> **Cámbiala antes de entregar el sistema.** Entrá a *Usuarios* → ícono de llave → *Cambiar
-> contraseña*. La contraseña se guarda cifrada con **scrypt**; nunca se muestra después de
-> guardada y no se puede recuperar, solo cambiar.
-
-### Titulados y egresados
-
-Entran con su **cédula de identidad**. Si la carrera les asigna una contraseña (creando un
-usuario con esa CI en *Usuarios*), también pueden entrar con CI + contraseña.
-
-Ejemplos que trae el `seed`:
-
-| CI          | Nombre                        | Tipo     |
-| ----------- | ----------------------------- | -------- |
-| `6893412LP` | Carlos Alberto Mendoza Ramos  | Titulado |
-| `8341920LP` | Lucía Belén Gutierrez Morales | Egresado |
-
----
-
-## 8. Seguridad: qué hace el sistema y qué no
-
-### Lo que sí hace
-
-| Medida                                                                                                           | Dónde                                      |
-| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Contraseñas cifradas con **scrypt** + salt por usuario                                                           | `src/lib/password.ts`                      |
-| Comparación en **tiempo constante** (anti timing attack)                                                         | `src/lib/password.ts`, `src/lib/sesion.ts` |
-| Sesión en **cookie `httpOnly` + `SameSite=Lax` + `Secure` en producción**                                        | `src/lib/sesion.ts`                        |
-| Token **firmado con HMAC-SHA256** y con expiración (8 h)                                                         | `src/lib/sesion.ts`                        |
-| **Rutas protegidas en el servidor** antes de renderizar                                                          | `src/middleware.ts`                        |
-| **Todas las APIs verifican sesión y rol**, no solo la UI                                                         | `src/lib/guards.ts`                        |
-| Cédula única e irrepetible, con alerta clara                                                                     | `src/lib/validaciones.ts`                  |
-| **Límite de intentos en el login**: 5 por 15 min, con bloqueo de 15 min                                          | `src/lib/rateLimit.ts`                     |
-| El limitador cuenta **por IP y por cédula**, así que atacar una cuenta desde varias IP también agota el contador | `src/lib/rateLimit.ts`                     |
-| **Alta pública con verificación por token** (hash SHA-256, 48 h de vigencia, 5 intentos, un solo uso)            | `src/lib/verificacion.ts`                  |
-| El alta pública **no revela si una cédula ya existe** (responde 202 en ambos casos)                              | `src/app/api/registro/route.ts`            |
-| Validación de entrada con **zod** en todas las escrituras                                                        | `src/lib/validaciones.ts`                  |
-| Los errores internos **no** se devuelven al cliente                                                              | `src/lib/guards.ts` → `errorInterno`       |
-| Registro de quién hizo qué y cuándo, con IP y valores anteriores/nuevos                                          | `src/lib/auditoria.ts`                     |
-| Los datos exportados se generan **en memoria**, nunca en disco                                                   | `src/app/api/exportar/*`                   |
-
-### Lo que NO hace (pendiente para producción real)
-
-- **Sin HTTPS.** Sin TLS las contraseñas viajan en claro. Es obligatorio detrás de Nginx +
-  Let's Encrypt.
-- **El rate limiting es en memoria**: vive en el proceso del servidor (`src/lib/rateLimit.ts`), no
-  en la base. Con varias instancias cada una cuenta aparte, y al reiniciar el servidor los
-  contadores se ponen en cero.
-- **El correo se envía por SMTP, pero hay que configurarlo.** Complete `SMTP_HOST`, `SMTP_PORT`,
-  `SMTP_USER`, `SMTP_PASS` y `CORREO_REMITENTE` en `.env` (o en *Environment* de Dokploy). El
-  cliente SMTP está en `src/lib/smtp.ts` (sin dependencias nuevas). Pruebe las credenciales con
-  `pnpm correo:probar su-correo@gmail.com`. Sin configuración, `src/lib/correo.ts` no envía nada:
-  imprime el enlace en la consola y lo devuelve en la respuesta de `/api/registro`.
-- **Sin recuperación de contraseña.** No hay "olvidé mi contraseña" por correo. El único cambio de
-  clave es manual: un admin entra a *Usuarios* → llave → *Cambiar contraseña* (exige la clave
-  actual).
-- **Sin CAPTCHA.** Queda el rate limiting como única defensa contra ataques automatizados.
-- **La cuenta admin inicial es conocida** (`adm@gen.bo` / `adm`) si se corrió el seed.
-  Hay que cambiarla.
-
-> Nota: verificar el correo **no** habilita el registro por sí solo. La persona queda en estado
-> `PENDIENTE` hasta que un administrador la valida desde *Registros*.
-
----
-
-## 9. Copias de seguridad
-
-`scripts/backup.sh` hace el backup con `pg_dump` y rota los archivos viejos:
+`scripts/backup.sh` descarga el respaldo desde `/api/respaldar` (no usa `pg_dump`).
+Necesita la app levantada y credenciales de admin:
 
 ```bash
-# Ver el script
-cat scripts/backup.sh
+ADMIN_CI=adm@gen.bo ADMIN_PASSWORD=adm \
+APP_URL=http://localhost:3001 bash scripts/backup.sh
 
-# Ejecutar a mano
-bash scripts/backup.sh
+# Formato SQL en vez de JSON
+FORMATO=sql bash scripts/backup.sh
 ```
 
-Programarlo todos los días a las 02:00 (Linux, `crontab -e`):
+Programar con `crontab -e`:
 
 ```cron
-0 2 * * * cd /opt/sistema1_5 && bash scripts/backup.sh >> /var/log/seguit-backup.log 2>&1
+0 2 * * * cd /opt/sistema-titulados-estadistica-main && \
+  ADMIN_CI=adm@gen.bo ADMIN_PASSWORD=adm APP_URL=https://tu-dominio.umsa.bo \
+  bash scripts/backup.sh >> /var/log/seguit-backup.log 2>&1
 ```
 
-**Un backup que nunca se restauró no es un backup.** Pruébalo:
+Los respaldos quedan en `backups/` con permisos `600` y rotación de 30 días.
 
-```bash
-createdb -E UTF8 prueba_restore
-pg_restore -d prueba_restore /var/backups/seguit/sistitulados_ULTIMO.dump && echo "BACKUP OK"
+---
+
+## 11. Estructura
+
+```
+sistema-titulados-estadistica-main/
+├── docker-compose.yml              Producción local (app + db + Traefik opcional)
+├── docker-compose.dokploy.yml      Dokploy
+├── docker-compose.db.yml           Solo PostgreSQL para desarrollo
+├── Dockerfile / docker-entrypoint.sh
+├── drizzle/                        Migraciones versionadas
+├── scripts/                        Seed, migraciones, correo, backup
+├── pruebascalidad/                 Suite de calidad (91 pruebas)
+├── src/
+│   ├── app/                        Páginas y API Routes
+│   ├── components/
+│   ├── db/                         Esquema y conexión
+│   ├── lib/                        Sesión, contraseñas, guardas, auditoría
+│   └── middleware.ts
+├── storage/                        Adjuntos (volúmenes en Docker)
+├── .env.example                    Plantilla sin secretos
+└── smtp_pass.txt                   Secreto local, NO versionado
 ```
 
 ---
 
-## 10. Problemas frecuentes
+## 12. Problemas frecuentes
 
-| Síntoma                                                               | Causa                                                           | Solución                                                                                              |
-| --------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `relation "personas" does not exist`                                  | No se aplicó el esquema                                         | `pnpm db:migrate`                                                                                     |
-| `password authentication failed for user "postgres"`                  | La clave de `.env.local` no coincide                            | Revisar `DATABASE_URL`                                                                                |
-| `DATABASE_URL no está definido`                                       | Falta `.env` o la variable                                | `cp .env.example .env` y completarla                                                            |
-| `SESSION_SECRET es obligatorio en producción`                         | Falta la variable                                               | Ver sección 5                                                                                         |
-| Los apellidos con `Ñ` salen desordenados                              | La BD se creó con la collation por defecto del sistema          | Recrear la BD con la collation que usa el servidor                                                    |
-| `permission denied while trying to connect to the docker API`         | El usuario no está en el grupo `docker`                         | `sudo usermod -aG docker $USER` y reiniciar sesión (sección 1.2)                                      |
-| `Bind for 0.0.0.0:5432 failed: port is already allocated`             | Un PostgreSQL nativo ya ocupa el 5432                           | Mover `DB_PORT` a `5433` en `.env` (ya viene así)                                                     |
-| `ECONNREFUSED` al correr `pnpm dev` con la BD en Docker               | `DATABASE_URL` apunta a `db:5432` en vez de `localhost`         | Cambiar a `localhost:5433` (sección 3.1)                                                              |
-| `invalid input value for enum usuario_rol_enum: "KARDEX"`             | Faltó aplicar una migración (falta el valor del enum)           | `pnpm db:migrate` y volver a correr `pnpm seed`                                                       |
-| `ERR_PNPM_LOCKFILE_WRITE_FILE` dentro del contenedor                  | pnpm intenta reescribir el lockfile como usuario `nextjs`       | Ya corregido en el `Dockerfile`; reconstruir la imagen                                                |
-| `column "personas.sector_trabajo" must appear in the GROUP BY clause` | Se editó una expresión agrupada sin actualizarla                | Repetir la misma expresión en `select()` y `groupBy()`                                                |
-| `CASE types ... cannot be matched`                                    | Se mezcló un enum con un `text` en un `CASE`                    | Castear con `::text`                                                                                  |
-| `Cannot find module '.next/standalone/server.js'`                     | `output: "standalone"` no está activado                         | `pnpm start` (o activar standalone)                                                                   |
-| Los cambios en el login no se ven                                     | Sesión vieja en la cookie                                       | Cerrar sesión y volver a entrar                                                                       |
-| El captcha de Cloudflare no aparece                                   | La CSP bloquea la verificación de Turnstile                     | Ya corregido: `connect-src` incluye `challenges.cloudflare.com`. Si persiste, revisá la consola (F12) |
-| Las páginas quedan en "Cargando..." para siempre                      | La CSP bloqueó el JS del cliente (`unsafe-eval` ausente en dev) | Ya corregido: `unsafe-eval` solo en desarrollo                                                        |
-| `getaddrinfo ENOTFOUND db`                                            | `DATABASE_URL` apunta a `db:5432` desde el host                 | Usar `pnpm dev:docker` / `localhost:5433` (sección 3)                                                 |
-| `Port 3000 is in use`                                                 | Quedó un `next start` o `next dev` anterior corriendo           | `pkill -f next-server`, o usar `PORT=3001`                                                            |
-| `python` no encontrado al generar datos                               | No está Python en el PATH                                       | Usar `python3`, o instalar Python                                                                     |
+| Síntoma                               | Causa                                               | Solución                                                                     |
+| ------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `Falta DB_PASSWORD en .env`           | No hay `.env` o está incompleto                     | `cp .env.example .env` y completar                                           |
+| `Falta SESSION_SECRET`                | Igual                                               | Generar con `openssl rand -hex 32`                                           |
+| `relation "personas" does not exist`  | Migraciones no aplicadas                            | `AUTORUN_MIGRATIONS=true` y reiniciar; o `node scripts/migrate.mjs`          |
+| La app no abre en 3001                | Contenedor unhealthy                                | `docker compose logs app` y `docker compose ps`                              |
+| Los enlaces de correo van a localhost | `NEXT_PUBLIC_APP_URL`/`SITIO_URL` mal o sin rebuild | Corregir y `docker compose build app`                                        |
+| La sesión no persiste                 | URL en `http://` con cookie `Secure`                | Usar `https://` en producción                                                |
+| `port is already allocated`           | Otro PostgreSQL/Traefik ocupa el puerto             | Cambiar `DB_PORT` o `TRAEFIK_PORT`                                           |
+| `Bind for 0.0.0.0:3000 failed`        | Dokploy u otro servicio ya usa el 3000              | Publicar la app en 3001 (`APP_HOST_PORT=3001`); no detener Dokploy           |
+| Se perdió la base al desplegar        | `PG_VOLUME_NAME` apunta a un volumen nuevo          | Apuntar al volumen anterior o restaurar respaldo                             |
+| `permission denied` en `storage/`     | Volumen creado como root                            | Reconstruir la imagen; el Dockerfile crea los directorios con dueño `nextjs` |

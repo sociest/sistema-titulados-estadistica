@@ -16,7 +16,7 @@ Este documento describe la arquitectura y los pasos para desplegar el **Sistema 
    - Se añadió [docker-entrypoint.sh](file:///home/andreschirinos/Proyectos/WebSistemaTitulados_Est/docker-entrypoint.sh) y [scripts/migrate.mjs](file:///home/andreschirinos/Proyectos/WebSistemaTitulados_Est/scripts/migrate.mjs) para:
      - Esperar a que PostgreSQL esté disponible.
      - Aplicar automáticamente las migraciones Drizzle (`AUTORUN_MIGRATIONS=true`).
-     - Insertar el administrador inicial y datos base (`AUTORUN_SEED=false`).
+     - Insertar el administrador inicial y datos base (`AUTORUN_SEED=true`).
 
 ---
 
@@ -50,7 +50,7 @@ Existen dos maneras estándar de desplegar la aplicación en Dokploy:
    SMTP_PASS=<contraseña de aplicación de 16 letras, sin espacios>
    CORREO_REMITENTE=Sistema SEGUIT <cuenta-del-sistema@gmail.com>
    AUTORUN_MIGRATIONS=true
-   AUTORUN_SEED=false
+   AUTORUN_SEED=true
    ```
    > `NEXT_PUBLIC_*` se incrustan al **construir** la imagen: si las cambiás, hay que
    > redesplegar con *Rebuild*, no solo reiniciar.
@@ -90,7 +90,7 @@ Existen dos maneras estándar de desplegar la aplicación en Dokploy:
      SMTP_PASS=<contraseña de aplicación>
      CORREO_REMITENTE=Sistema SEGUIT <cuenta-del-sistema@gmail.com>
      AUTORUN_MIGRATIONS=true
-     AUTORUN_SEED=false
+     AUTORUN_SEED=true
      PORT=3000
      ```
    - En **Domains**, asigna tu dominio apuntando al puerto `3000`.
@@ -106,7 +106,7 @@ Existen dos maneras estándar de desplegar la aplicación en Dokploy:
   [entrypoint] ✓ Conexión con PostgreSQL exitosa.
   [entrypoint] Ejecutando migraciones automáticas Drizzle...
   [migrate] ✓ Migraciones aplicadas con éxito.
-  [entrypoint] AUTORUN_SEED=false: ejecutando seed inicial...
+  [entrypoint] AUTORUN_SEED=true: ejecutando seed inicial...
   ✓ Ready in ...ms
   ```
 - **Credenciales iniciales generadas por el seed:**

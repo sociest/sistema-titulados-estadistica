@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { errorInterno, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import {
@@ -13,17 +13,17 @@ import { crearVerificacion } from "@/lib/verificacion";
 import { enviarCorreoVerificacion } from "@/lib/correo";
 import { registrarIntento, verificarLimite } from "@/lib/rateLimit";
 import { ipDesde } from "@/lib/auditoria";
+import { verificarTurnstile } from "@/lib/turnstile";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Separa los campos de consentimiento (transporte) de los que son columnas de `personas`.
- *
- * Sin esto, el `...datos` del INSERT arrastraría `consentimientoPrivacidad` y
- * `versionAvisoPrivacidad`, que no existen en la tabla, y el INSERT fallaría.
- */
 function sinConsentimiento(datos: PersonaRegistroPublicoInput) {
-  const { consentimientoPrivacidad: _c, versionAvisoPrivacidad: _v, ...persona } = datos;
+  const {
+    consentimientoPrivacidad: _c,
+    versionAvisoPrivacidad: _v,
+    turnstileToken: _t,
+    ...persona
+  } = datos;
   return persona;
 }
 
@@ -75,8 +75,14 @@ export async function POST(req: NextRequest) {
     }
     const datos = parseo.data;
 
-    // El correo es obligatorio en el alta pública: es lo único que permite demostrar que
-    // la persona controla el buzón y, por tanto, que el registro es suyo.
+    const captcha = await verificarTurnstile(datos.turnstileToken, ip);
+    if (!captcha.valido) {
+      return NextResponse.json(
+        { error: captcha.motivo ?? "Verificación de seguridad fallida." },
+        { status: 403 }
+      );
+    }
+
     if (!datos.correoElectronico) {
       return NextResponse.json(
         { error: "Debe indicar un correo electrónico", campos: { correoElectronico: ["Obligatorio"] } },
@@ -84,12 +90,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Cédula ya existente ────────────────────────────────────────────────────
-    // La respuesta debe ser INDISTINGUIBLE de la del alta nueva: mismo status (202), mismo
-    // cuerpo y ninguna clave extra. Si difiriera aunque sea en el status HTTP, el endpoint
-    // serviría para averiguar qué cédulas están en el sistema, que es justo lo que el
-    // comentario de arriba advertía. Quien ya está registrado se entera por su correo, que es
-    // el único canal que se controla: no se revela nada a quien solo tiene la cédula.
     const RESPUESTA_NEUTRA = {
       mensaje:
         "Si los datos son correctos, se le enviará un correo para verificar. " +
@@ -99,10 +99,16 @@ export async function POST(req: NextRequest) {
       NextResponse.json(RESPUESTA_NEUTRA, { status: 202 });
 
     const ci = datos.cedulaIdentidad.trim().toUpperCase();
+    const correoNorm = datos.correoElectronico.trim().toLowerCase();
     const existentes = await db
       .select({ id: personas.id, activo: personas.activo, estadoRegistro: personas.estadoRegistro })
       .from(personas)
-      .where(sql`upper(${personas.cedulaIdentidad}) = ${ci}`)
+      .where(
+        or(
+          eq(personas.cedulaIdentidad, ci),
+          sql`lower(${personas.correoElectronico}) = ${correoNorm}`
+        )
+      )
       .limit(1);
 
     if (existentes.length) {
@@ -183,14 +189,19 @@ export async function POST(req: NextRequest) {
       req,
     });
 
-    // Mismo status y mismo `mensaje` que la rama de cédula existente. Lo único que puede
-    // aparecer además es el enlace de verificación, y solo cuando se creó el registro y no
-    // hay SMTP configurado: en ese caso lo recibe quien controla el correo que acaba de
-    // escribir, no quien consulta una cédula ajena. `id` no se devuelve nunca.
+    registrarIntento(ip, "registro-publico");
+
+    // En producción NUNCA se devuelve el token secreto en la respuesta HTTP (evita bypass
+    // de verificación de buzón y enumeración de cédulas si el SMTP falla).
+    const incluirEnlaceSoloDev =
+      !envio.enviado && process.env.NODE_ENV !== "production"
+        ? { enlaceVerificacion: `/verificar?token=${token}` }
+        : {};
+
     return NextResponse.json(
       {
         ...RESPUESTA_NEUTRA,
-        ...(envio.enviado ? {} : { enlaceVerificacion: `/verificar?token=${token}` }),
+        ...incluirEnlaceSoloDev,
       },
       { status: 202 }
     );

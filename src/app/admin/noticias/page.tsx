@@ -56,10 +56,10 @@ const ETIQUETAS: Record<keyof Campos, string> = {
 const TIPOS_ACEPTADOS = ["image/jpeg", "image/png", "image/webp"];
 const MAX_MB = 5;
 
-/** Solo http(s) o un archivo ya subido al sistema. Rechaza rutas locales (C:\, file://, etc.). */
+/** Solo https:// o un archivo ya subido al sistema. Rechaza http:// y rutas locales. */
 function urlValida(v: string): boolean {
   if (v === "") return true;
-  return /^https?:\/\/\S+$/i.test(v) || /^\/api\/noticias\/imagen\/[a-f0-9-]{36}\.(jpg|png|webp)$/.test(v);
+  return /^https:\/\/\S+$/i.test(v) || /^\/api\/noticias\/imagen\/[a-f0-9-]{36}\.(jpg|png|webp)$/.test(v);
 }
 
 function mostrarValor(campo: keyof Campos, v: unknown): string {
@@ -180,7 +180,7 @@ export default function AdminNoticiasPage() {
     if (titulo.trim().length === 0) { setErr("El título es obligatorio"); return; }
     if (cuerpo.trim().length === 0) { setErr("La descripción es obligatoria"); return; }
     if (!urlValida(imagenUrl.trim())) {
-      setErr("La imagen debe ser una URL que empiece por http:// o https://, o un archivo subido");
+      setErr("La imagen debe ser una URL segura https:// o un archivo subido al sistema");
       return;
     }
 
@@ -255,14 +255,22 @@ export default function AdminNoticiasPage() {
   };
 
   const eliminar = async (n: Noticia) => {
+    if (!window.confirm(`¿Está seguro de eliminar "${n.titulo}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
     setBorrandoId(n.id);
     setMsg(""); setErr("");
     try {
-      await fetch(`/api/noticias/${n.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/noticias/${n.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "No se pudo eliminar la publicación");
+      }
       if (editando?.id === n.id) limpiarFormulario();
+      setMsg("Publicación eliminada");
       cargar();
-    } catch (e: any) {
-      setErr(e.message);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "No se pudo eliminar la publicación");
     } finally {
       setBorrandoId(null);
     }
@@ -418,7 +426,7 @@ export default function AdminNoticiasPage() {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{n.cuerpo}</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Link href={`/noticias/${n.id}`} target="_blank" className="p-2 rounded-lg text-xs font-bold text-blue-800 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950 transition">Ver</Link>
+                  <Link href={`/noticias/${n.id}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-xs font-bold text-blue-800 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950 transition">Ver</Link>
                   <button onClick={() => cargarEnFormulario(n)} className="p-2 rounded-lg text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950 transition" title="Editar">
                     <Pencil className="w-4 h-4" />
                   </button>

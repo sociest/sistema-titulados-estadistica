@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { usuarios, personas } from "@/db/schema";
 import { count, desc, eq, or, sql } from "drizzle-orm";
-import { exigirAdmin, verificarCsrf, errorInterno } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
-import { hashPassword } from "@/lib/password";
+import { exigirAdmin, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { hashPasswordAsync } from "@/lib/password";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { usuarioConPasswordSchema, primerErrorZod } from "@/lib/validaciones";
 
@@ -85,14 +84,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const passwordHash = await hashPasswordAsync(datos.password);
     const [creado] = await db
       .insert(usuarios)
       .values({
         nombre: datos.nombre,
         correo: datos.correo,
         ci: datos.ci ?? null,
-        // La contraseña NUNCA se guarda en texto plano.
-        passwordHash: hashPassword(datos.password),
+        passwordHash,
         rol: datos.rol,
         estado: datos.estado,
       })
@@ -110,7 +109,7 @@ export async function POST(req: NextRequest) {
       accion: "crear",
       entidad: "usuarios",
       entidadId: creado!.id,
-      idUsuario: await (await leerSesionDeRequest(req))?.sub ?? null,
+      idUsuario: (await leerSesionVigente(req))?.sub ?? null,
       detalles: `Usuario creado: ${creado!.correo} (${creado!.rol}, ${creado!.estado})`,
       req,
     });

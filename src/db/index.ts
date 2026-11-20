@@ -17,12 +17,18 @@ const pool =
   globalForDb.conn ??
   new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 20,
+    max: 12,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
+    statement_timeout: 20000,
+    query_timeout: 20000,
   });
 
-if (process.env.NODE_ENV !== "production") globalForDb.conn = pool;
+pool.on("error", (err) => {
+  console.error("[pg-pool] Error en cliente PostgreSQL inactivo:", err.message);
+});
+
+globalForDb.conn = pool;
 
 export const db = drizzle(pool, { schema });
 export { pool };

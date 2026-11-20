@@ -6,7 +6,7 @@ import { X, Download, FileSpreadsheet, FileText, Loader2, ShieldCheck } from "lu
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void> | void;
   title: string;
   formato: "excel" | "csv";
   params: URLSearchParams;
@@ -27,10 +27,14 @@ export default function ExportModal({
 }: ExportModalProps) {
   const [data, setData] = useState<PreviewRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setSubmitting(false);
+      return;
+    }
 
     const fetchPreview = async () => {
       setLoading(true);
@@ -59,8 +63,14 @@ export default function ExportModal({
  * servidor) y cerrarlo de inmediato se tragaría el mensaje de error si la descarga
  * falla. Quien lo cierra es el propio callback cuando la llamada termina bien.
  */
-const handleConfirm = () => {
-    onConfirm();
+  const handleConfirm = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onConfirm();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -161,16 +171,18 @@ const handleConfirm = () => {
           <div className="flex items-center justify-end gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 transition"
+              disabled={submitting}
+              className="px-4 py-2 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 transition disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               onClick={handleConfirm}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-emerald-700 hover:bg-emerald-800 transition"
+              disabled={submitting || loading}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white bg-emerald-700 hover:bg-emerald-800 transition disabled:opacity-50"
             >
-              <Download className="w-4 h-4" />
-              Sí, exportar datos
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {submitting ? "Generando enlace…" : "Sí, exportar datos"}
             </button>
           </div>
         </div>

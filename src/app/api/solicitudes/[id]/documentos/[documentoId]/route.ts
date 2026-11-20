@@ -37,7 +37,9 @@ export async function GET(
     )).limit(1);
 
   if (!row) return NextResponse.json({ error: "Documento no encontrado" }, { status: 404 });
-  if (sesion.rol !== "admin" && sesion.rol !== "KARDEX" && sesion.ci !== row.ci) {
+  const ciSesion = (sesion.ci ?? "").trim().toUpperCase();
+  const ciSolicitud = (row.ci ?? "").trim().toUpperCase();
+  if (sesion.rol !== "admin" && sesion.rol !== "KARDEX" && (!ciSesion || ciSesion !== ciSolicitud)) {
     return NextResponse.json({ error: "No tiene permiso para acceder a este documento" }, { status: 403 });
   }
 
@@ -55,6 +57,7 @@ export async function GET(
         "Content-Disposition": `${dispositionType}; filename="documento"; filename*=UTF-8''${encodeURIComponent(row.nombreOriginal)}`,
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
       },
     });
   } catch {

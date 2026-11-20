@@ -54,26 +54,52 @@ function deBase64Url(texto: string): Buffer {
   return Buffer.from(normal, "base64");
 }
 
-/** Calcula la firma de una descarga. */
-function calcular(ruta: string, exp: number, sub: string): string {
+const PARAMETROS_FIRMA = new Set(["sig", "exp", "sub"]);
+
+function queryCanonica(params?: URLSearchParams | null): string {
+  if (!params) return "";
+  const pares: Array<[string, string]> = [];
+  params.forEach((valor, clave) => {
+    if (!PARAMETROS_FIRMA.has(clave)) {
+      pares.push([clave, valor]);
+    }
+  });
+  if (pares.length === 0) return "";
+  pares.sort((a, b) => (a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0])));
+  const limpio = new URLSearchParams();
+  for (const [k, v] of pares) limpio.append(k, v);
+  return limpio.toString();
+}
+
+/** Calcula la firma de una descarga cubriendo ruta + filtros canónicos + expiración + sujeto. */
+function calcular(ruta: string, exp: number, sub: string, params?: URLSearchParams | null): string {
+  const qs = queryCanonica(params);
+  const alcance = qs ? `${ruta}?${qs}` : ruta;
   return aBase64Url(
-    createHmac("sha256", clave()).update(`${ruta} ${exp} ${sub}`, "utf8").digest()
+    createHmac("sha256", clave()).update(`descarga:v1:${alcance} ${exp} ${sub}`, "utf8").digest()
   );
 }
 
 /**
  * Emite un enlace de descarga temporal: `/api/exportar?sig=...&exp=...&sub=...`.
  *
- * `sub` va en URL porque el cliente tiene que poder distinguir una firma propia de la de
- * otro usuario, pero NO es secreto: está atado al hash, así que cambiarlo rompe la firma.
+ * `params` se incorpora a la firma HMAC para impedir que quien obtenga un enlace
+ * modifique `?tipo=`, `?formato=`, `?incluirBajas=true`, etc.
  */
-export function firmarDescarga(ruta: string, sub: string, msValidez: number = VIGENCIA_DESCARGA_MS): {
+export function firmarDescarga(
+  ruta: string,
+  sub: string,
+  msValidez: number = VIGENCIA_DESCARGA_MS,
+  params?: URLSearchParams | null
+): {
   url: string;
   exp: number;
 } {
   const exp = Date.now() + msValidez;
-  const sig = calcular(ruta, exp, sub);
-  return { url: `${ruta}?sig=${encodeURIComponent(sig)}&exp=${exp}&sub=${encodeURIComponent(sub)}`, exp };
+  const sig = calcular(ruta, exp, sub, params);
+  const base = `${ruta}?sig=${encodeURIComponent(sig)}&exp=${exp}&sub=${encodeURIComponent(sub)}`;
+  const extra = params && params.size ? `&${params.toString()}` : "";
+  return { url: `${base}${extra}`, exp };
 }
 
 export type ResultadoVerificacionFirma =
@@ -81,11 +107,7 @@ export type ResultadoVerificacionFirma =
   | { valida: false; motivo: "ausente" | "malformada" | "expirada" | "alterada" | "otro-sujeto" };
 
 /**
- * Verifica la firma de una petición de descarga.
- *
- * `otro-sujeto` se distingue de `alterada` a propósito: si el enlace se comparte entre
- * administradores, hay que poder decir en la auditoría que fue un enlace ajeno y no una
- * firma manipulada. Son incidentes distintos.
+ * Verifica la firma de una petición de descarga (incluidos sus filtros en `params`).
  */
 export function verificarDescarga(
   ruta: string,
@@ -93,19 +115,15 @@ export function verificarDescarga(
   exp: number | null,
   sub: string | null,
   subEsperado: string,
+  params?: URLSearchParams | null,
   ahora: number = Date.now()
 ): ResultadoVerificacionFirma {
   if (!sig || !exp || !sub) return { valida: false, motivo: "ausente" };
   if (!Number.isFinite(exp)) return { valida: false, motivo: "malformada" };
 
-  const esperada = calcular(ruta, exp, sub);
+  const esperada = calcular(ruta, exp, sub, params);
   const recibido = deBase64Url(sig);
 
-  // OJO: la comparación de longitudes es ENTRE BUFFERS. Una firma base64url de 32 bytes
-  // mide 43 caracteres como cadena, y comparar `recibido.length` (32, bytes) contra
-  // `esperada.length` (43, caracteres de la cadena) da siempre falso, con lo que
-  // TODAS las descargas se rechazaban como "alteradas". Se decodifica la esperada
-  // también y se comparan los bytes.
   const esperadaBuf = deBase64Url(esperada);
   const correcto =
     recibido.length === esperadaBuf.length && timingSafeEqual(recibido, esperadaBuf);

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowDownToLine, Check, RefreshCw, X } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 interface Documento {
   id: number;
@@ -19,6 +21,8 @@ interface Solicitud {
 }
 
 export default function SolicitudesKardexPage() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
   const [detalles, setDetalles] = useState<Record<number, string>>({});
   const [version, setVersion] = useState(0);
@@ -28,6 +32,13 @@ export default function SolicitudesKardexPage() {
   const [mensaje, setMensaje] = useState("");
 
   useEffect(() => {
+    if (!authLoading && (!user || (user.rol !== "KARDEX" && user.rol !== "admin"))) {
+      router.replace("/login");
+    }
+  }, [authLoading, user, router]);
+
+  useEffect(() => {
+    if (authLoading || !user || (user.rol !== "KARDEX" && user.rol !== "admin")) return;
     let activa = true;
     setCargando(true);
     fetch("/api/kardex/solicitudes", { cache: "no-store" })
@@ -40,7 +51,7 @@ export default function SolicitudesKardexPage() {
       .catch((e: Error) => { if (activa) setError(e.message); })
       .finally(() => { if (activa) setCargando(false); });
     return () => { activa = false; };
-  }, [version]);
+  }, [version, authLoading, user]);
 
   async function decidir(solicitud: Solicitud, estado: "ACEPTADO" | "RECHAZADO") {
     const detalle = detalles[solicitud.id]?.trim() || "";
@@ -71,8 +82,13 @@ export default function SolicitudesKardexPage() {
     }
   }
 
+  if (authLoading) {
+    return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
+  }
+  if (!user || (user.rol !== "KARDEX" && user.rol !== "admin")) return null;
+
   return (
-    <main className="min-h-[calc(100vh-76px)] px-4 py-8 text-slate-900 dark:bg-slate-950 dark:text-slate-100 sm:px-6">
+    <div className="min-h-[calc(100vh-76px)] px-4 py-8 text-slate-900 dark:bg-transparent dark:text-slate-100 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800">
           <div>
@@ -125,7 +141,7 @@ export default function SolicitudesKardexPage() {
                             <a
                               href={urlDoc}
                               target="_blank"
-                              rel="noreferrer"
+                              rel="noopener noreferrer"
                               className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold gap-1.5 transition-opacity"
                             >
                               Ver tamaño completo
@@ -143,7 +159,7 @@ export default function SolicitudesKardexPage() {
                             <a
                               href={urlDoc}
                               target="_blank"
-                              rel="noreferrer"
+                              rel="noopener noreferrer"
                               className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600"
                             >
                               Ver
@@ -164,7 +180,7 @@ export default function SolicitudesKardexPage() {
               </div>
 
               <label className="mt-5 block text-sm font-semibold" htmlFor={`detalle-${solicitud.id}`}>Motivo de rechazo <span className="font-normal text-slate-500 dark:text-slate-400">(obligatorio si rechazas)</span></label>
-              <textarea id={`detalle-${solicitud.id}`} value={detalles[solicitud.id] || ""} onChange={(event) => setDetalles((current) => ({ ...current, [solicitud.id]: event.target.value }))} rows={3} maxLength={4000} className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-base font-normal dark:border-slate-700 dark:bg-slate-950" />
+              <textarea id={`detalle-${solicitud.id}`} value={detalles[solicitud.id] || ""} onChange={(event) => setDetalles((current) => ({ ...current, [solicitud.id]: event.target.value }))} rows={3} maxLength={4000} className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-base font-normal text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
 
               <div className="mt-4 flex flex-wrap justify-end gap-3">
                 <button disabled={ocupada === solicitud.id || !detalles[solicitud.id]?.trim()} onClick={() => void decidir(solicitud, "RECHAZADO")} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-red-300 px-4 text-sm font-semibold text-red-800 disabled:opacity-45 dark:border-red-900 dark:text-red-300">
@@ -178,6 +194,6 @@ export default function SolicitudesKardexPage() {
           ))}
         </div>
       </div>
-    </main>
+    </div>
   );
 }

@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { usuarios } from "@/db/schema";
-import { and, eq, ne, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno, verificarCsrf } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
-import { hashPassword, verifyPassword } from "@/lib/password";
+import { and, eq, ne, or, sql } from "drizzle-orm";
+import { exigirAdmin, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
+import { hashPasswordAsync, verifyPasswordAsync } from "@/lib/password";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { usuarioSchema, primerErrorZod } from "@/lib/validaciones";
+import { revocarSesionesDeUsuario } from "@/lib/sesiones";
+import {
+  esPasswordIgualACredencial,
+  passwordSeguraSchema,
+  primerErrorZod,
+  usuarioSchema,
+} from "@/lib/validaciones";
 
 export const dynamic = "force-dynamic";
 
@@ -49,23 +54,45 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!actual.length) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     const antes = actual[0]!;
 
-    const sesion = await leerSesionDeRequest(req);
+    const sesion = await leerSesionVigente(req);
     const patch: Record<string, unknown> = {};
 
-      // ── Cambio de contraseña ────────────────────────────────────────────────
+    // ── Cambio de contraseña ────────────────────────────────────────────────
     if (body.password !== undefined && body.password !== "") {
-      if (typeof body.password !== "string" || body.password.length < 8) {
-        return NextResponse.json({ error: "La contraseña debe tener al menos 8 caracteres" }, { status: 400 });
-      }
-      // Siempre hay que confirmar la contraseña actual, sea el propio usuario o otro.
-      const actualPass = (body.passwordActual ?? "").toString();
-      if (!actualPass || !verifyPassword(actualPass, antes.passwordHash)) {
+      const checkPass = passwordSeguraSchema.safeParse(body.password);
+      if (!checkPass.success) {
         return NextResponse.json(
-          { error: "Debe confirmar su contraseña actual para cambiarla" },
+          { error: checkPass.error.issues[0]?.message ?? "Contraseña inválida" },
+          { status: 400 }
+        );
+      }
+      const ciObjetivo = typeof body.ci === "string" ? body.ci : antes.ci;
+      const correoObjetivo = typeof body.correo === "string" ? body.correo : antes.correo;
+      if (esPasswordIgualACredencial(checkPass.data, ciObjetivo, correoObjetivo)) {
+        return NextResponse.json(
+          { error: "Por seguridad, la contraseña no puede ser igual al CI ni al correo" },
+          { status: 400 }
+        );
+      }
+      // Se confirma contra la contraseña del ADMINISTRADOR que ejecuta el cambio (sea su
+      // propia cuenta o la de otro usuario que olvidó su clave).
+      const actualPass = (body.passwordActual ?? "").toString();
+      let hashVerificador = antes.passwordHash;
+      if (sesion?.sub && sesion.sub !== id) {
+        const [adminEjecutor] = await db
+          .select({ passwordHash: usuarios.passwordHash })
+          .from(usuarios)
+          .where(eq(usuarios.id, sesion.sub))
+          .limit(1);
+        if (adminEjecutor) hashVerificador = adminEjecutor.passwordHash;
+      }
+      if (!actualPass || !(await verifyPasswordAsync(actualPass, hashVerificador))) {
+        return NextResponse.json(
+          { error: "Debe confirmar su contraseña actual de administrador para cambiarla" },
           { status: 403 }
         );
       }
-      patch.passwordHash = hashPassword(body.password);
+      patch.passwordHash = await hashPasswordAsync(body.password);
     }
 
     // ── Datos del usuario ───────────────────────────────────────────────────
@@ -79,6 +106,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         );
       }
       const v = parseo.data;
+      const colision = await db
+        .select({ id: usuarios.id })
+        .from(usuarios)
+        .where(
+          and(
+            ne(usuarios.id, id),
+            or(eq(usuarios.correo, v.correo), v.ci ? eq(usuarios.ci, v.ci) : undefined)
+          )
+        )
+        .limit(1);
+      if (colision.length) {
+        return NextResponse.json(
+          { error: "Ya existe otro usuario con ese correo o cédula", codigo: "DUPLICADO" },
+          { status: 409 }
+        );
+      }
       patch.nombre = v.nombre;
       patch.correo = v.correo;
       patch.ci = v.ci ?? null;
@@ -120,6 +163,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       creadoEn: usuarios.creadoEn,
     });
 
+    // Si cambió contraseña, rol o dejó de estar activo, se revocan sus sesiones abiertas.
+    const cambioSeguridad =
+      patch.passwordHash !== undefined ||
+      (patch.rol !== undefined && patch.rol !== antes.rol) ||
+      (patch.estado !== undefined && patch.estado !== "activo");
+    if (cambioSeguridad) {
+      await revocarSesionesDeUsuario(id, "Cambio de estado, rol o contraseña por administración");
+    }
+
     const cambios = Object.keys(patch).filter((k) => k !== "actualizadoEn" && k !== "passwordHash");
     await registrarAuditoria({
       accion: "editar",
@@ -149,7 +201,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (malo) return malo;
   const id = Number(params.id);
 
-  const sesion = await leerSesionDeRequest(req);
+  const sesion = await leerSesionVigente(req);
   if (sesion?.sub === id) {
     return NextResponse.json({ error: "No puede eliminar su propia cuenta" }, { status: 400 });
   }

@@ -13,7 +13,7 @@ export default function LoadingOverlay({ visible, icon, title, label }: LoadingO
   if (!visible) return null;
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 text-white"
+      className="fixed inset-0 z-[140] flex flex-col items-center justify-center gap-5 text-white"
       style={{ backgroundColor: "var(--nav-bg)" }}
     >
       <div className="relative">

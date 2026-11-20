@@ -23,6 +23,11 @@ export interface KpiReporte {
   tiempoPromedioInsercionEgresados: number;
 }
 
+export interface FirmaReporte {
+  cargo: string;
+  nombre: string;
+}
+
 export interface DatosReporte {
   vista: "TITULADOS" | "EGRESADOS" | "COMPARATIVO";
   kpis: KpiReporte;
@@ -35,6 +40,7 @@ export interface DatosReporte {
   modalidades: Array<{ modalidad: string; total: number }>;
   motivos: Array<{ motivo: string; total: number }>;
   personas: Array<Record<string, unknown>>;
+  firma?: FirmaReporte;
 }
 
 const AZUL = "#0f2d52";
@@ -90,6 +96,7 @@ export function generarReportePdf(datos: DatosReporte): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
+      bufferPages: true,
       margins: { top: 45, bottom: 50, left: 45, right: 45 },
       info: {
         Title: `Reporte de Seguimiento a Titulados y Egresados - ${datos.vista}`,
@@ -212,7 +219,7 @@ export function generarReportePdf(datos: DatosReporte): Promise<Buffer> {
     doc.y += 42 * Math.ceil(cajas.length / 4) + 6;
     doc.fontSize(7).fillColor(GRIS)
        .text(
-         "Empleabilidad = employedor independiente sobre el total del grupo. Tiempo de inserción = meses hasta el primer empleo.",
+         "Empleabilidad = empleado o independiente sobre el total del grupo. Tiempo de inserción = meses hasta el primer empleo.",
          M, doc.y, { align: "left" }
        );
     doc.font("Helvetica").fillColor("#0f172a");
@@ -341,8 +348,14 @@ export function generarReportePdf(datos: DatosReporte): Promise<Buffer> {
         () => GRIS
       );
       if (datos.personas.length > 600) {
+        const totalReal =
+          datos.vista === "TITULADOS"
+            ? datos.kpis.totalTitulados
+            : datos.vista === "EGRESADOS"
+              ? datos.kpis.totalEgresados
+              : datos.kpis.totalTitulados + datos.kpis.totalEgresados;
         doc.fillColor(GRIS).fontSize(8).text(
-          `Se muestran los primeros 600 registros de ${datos.personas.length}. Para el detalle completo use la exportación a Excel.`,
+          `Se muestran los primeros 600 registros de ${Math.max(totalReal, datos.personas.length)}. Para el detalle completo use la exportación a Excel o CSV.`,
           M, doc.y, { align: "left" }
         );
         doc.fillColor("#0f172a");
@@ -351,7 +364,9 @@ export function generarReportePdf(datos: DatosReporte): Promise<Buffer> {
 
     // ── Pie de página ─────────────────────────────────────────────────────────
     const rango = doc.bufferedPageRange();
-    for (let i = rango.start; i < rango.start + rango.count; i++) {
+    const ultimaPagina = rango.start + rango.count - 1;
+
+    for (let i = rango.start; i <= ultimaPagina; i++) {
       doc.switchToPage(i);
       const yPie = doc.page.height - 34;
       doc.rect(0, yPie, doc.page.width, 34).fill("#f1f5f9");
@@ -359,6 +374,21 @@ export function generarReportePdf(datos: DatosReporte): Promise<Buffer> {
          .text("Sistema de Seguimiento a Titulados y Egresados · Carrera de Estadística · UMSA", M, yPie + 8);
       doc.text(`Página ${i + 1} de ${rango.count}`, M, yPie + 8, { width: ANCHO, align: "right" });
       doc.text(`Generado el ${fecha}`, M, yPie + 18, { width: ANCHO, align: "right" });
+
+      // ── Barra de firma en la última página ─────────────────────────────────
+      if (i === ultimaPagina && datos.firma) {
+        const yFirma = yPie - 70;
+        // Línea de firma
+        doc.strokeColor("#0f172a").lineWidth(1);
+        const xFirmaInicio = M;
+        const xFirmaFin = doc.page.width - M;
+        doc.moveTo(xFirmaInicio, yFirma).lineTo(xFirmaFin, yFirma).stroke();
+        // Texto debajo de la línea
+        doc.fillColor("#0f172a").fontSize(9).font("Helvetica-Bold");
+        doc.text(datos.firma.cargo, xFirmaInicio, yFirma + 5, { width: ANCHO, align: "center" });
+        doc.font("Helvetica").fontSize(9);
+        doc.text(datos.firma.nombre, xFirmaInicio, yFirma + 20, { width: ANCHO, align: "center" });
+      }
     }
 
     doc.fillColor(AMBAR).fontSize(7).text(

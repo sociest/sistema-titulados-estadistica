@@ -33,14 +33,29 @@ RETENER_DIAS="${RETENER_DIAS:-30}"
 APP_URL_EXPLICITO="${APP_URL:-}"
 APP_URL="${APP_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}"
 
-# Lee .env y luego .env.local (si existen), sin depender de que las variables estén exportadas.
+# Lee .env y luego .env.local de forma segura sin ejecutar código shell arbitrario.
+leer_archivo_env() {
+  local archivo="$1"
+  [ -f "$archivo" ] || return 0
+  while IFS= read -r linea || [ -n "$linea" ]; do
+    linea="${linea%$'\r'}"
+    case "$linea" in
+      ''|\#*) continue ;;
+    esac
+    if [[ "$linea" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+      local clave="${BASH_REMATCH[1]}"
+      local valor="${BASH_REMATCH[2]}"
+      valor="${valor#"${valor%%[![:space:]]*}"}"
+      valor="${valor%"${valor##*[![:space:]]}"}"
+      valor="${valor#\"}" ; valor="${valor%\"}"
+      valor="${valor#\'}" ; valor="${valor%\'}"
+      export "$clave=$valor"
+    fi
+  done < "$archivo"
+}
+
 for archivo_env in .env .env.local; do
-  if [ -f "$archivo_env" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "./$archivo_env"
-    set +a
-  fi
+  leer_archivo_env "./$archivo_env"
 done
 if [ -n "$APP_URL_EXPLICITO" ]; then
   APP_URL="$APP_URL_EXPLICITO"
@@ -59,7 +74,8 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 COOKIE_JAR="$(mktemp)"
-trap 'rm -f "$COOKIE_JAR"' EXIT
+LOGIN_TMP="$(mktemp)"
+trap 'rm -f "$COOKIE_JAR" "$LOGIN_TMP"' EXIT
 SELLO="$(date +%F_%H-%M-%S)"
 ARCHIVO="$BACKUP_DIR/respaldo_${SELLO}.${FORMATO}"
 mkdir -p "$BACKUP_DIR"
@@ -92,7 +108,7 @@ PY
 
   echo "[$(date '+%F %T')] Iniciando sesión como administrador en ${APP_URL}…"
   CODIGO_LOGIN="$(
-    curl -sS -c "$COOKIE_JAR" -o /tmp/seguit_login.json -w "%{http_code}" \
+    curl -sS -c "$COOKIE_JAR" -o "$LOGIN_TMP" -w "%{http_code}" \
       -X POST "${APP_URL}/api/auth/login" \
       -H "Content-Type: application/json" \
       -H "Origin: ${APP_URL}" \
@@ -101,11 +117,9 @@ PY
 
   if [ "$CODIGO_LOGIN" != "200" ]; then
     echo "ERROR: el login de administrador falló (HTTP ${CODIGO_LOGIN})." >&2
-    cat /tmp/seguit_login.json 2>/dev/null || true
-    rm -f /tmp/seguit_login.json
+    cat "$LOGIN_TMP" 2>/dev/null || true
     exit 1
   fi
-  rm -f /tmp/seguit_login.json
   echo "[$(date '+%F %T')] Sesión de administrador iniciada."
   CURL_SESION=(-b "$COOKIE_JAR")
 fi

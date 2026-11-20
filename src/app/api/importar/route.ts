@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
-import { sql } from "drizzle-orm";
-import { exigirAdmin, verificarCsrf, errorInterno } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
+import { sql, eq } from "drizzle-orm";
+import { exigirAdmin, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { personaAdminSchema, primerErrorZod } from "@/lib/validaciones";
+import { personaImportacionSchema, primerErrorZod } from "@/lib/validaciones";
 import { leerCsv } from "@/lib/csv";
+import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +20,12 @@ export const dynamic = "force-dynamic";
  *   .csv   → texto UTF-8
  *   .xlsx  → se lee con la librería `xlsx` ya instalada
  *
- * Cada fila se valida con el MISMO esquema `personaAdminSchema` que usa el alta manual, así
- * que no se pueden colar datos que la pantalla no permitiría. Se devuelve un reporte con
- * las filas Okay y las rechazadas, con el motivo de cada rechazo.
+ * Parámetros opcionales:
+ *   - sobrescribir: "true" | "false" (default: false) - Si true, actualiza registros existentes por CI
+ *
+ * Cada fila se valida con `personaImportacionSchema`: exige solo los campos obligatorios de
+ * la plantilla y valida el formato de los que vengan con dato. Se devuelve un reporte con
+ * las filas insertadas, actualizadas y rechazadas, con el motivo de cada rechazo.
  */
 
 const MAPA: Record<string, string> = {
@@ -70,6 +73,7 @@ export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
     const archivo = form.get("archivo");
+    const sobrescribir = form.get("sobrescribir") === "true";
 
     if (!(archivo instanceof File)) {
       return NextResponse.json({ error: "No se recibió ningún archivo" }, { status: 400 });
@@ -123,6 +127,7 @@ export async function POST(req: NextRequest) {
     const yaEnBase = new Set(existentes.map((e) => e.ci));
 
     const insertables: (typeof personas.$inferInsert)[] = [];
+    const actualizables: Array<{ ci: string; datos: typeof personas.$inferInsert }> = [];
     const rechazadas: Array<{ fila: number; ci: string; motivo: string }> = [];
     const vistas = new Set<string>();
 
@@ -140,6 +145,7 @@ export async function POST(req: NextRequest) {
         normalizado.trabajaEnEstadistica = aBooleano(normalizado.trabajaEnEstadistica);
       }
 
+      // Convertir cédula a string si viene como número (Excel/CSV pueden traerlo como number)
       const ci = String(normalizado.cedulaIdentidad ?? "").trim().toUpperCase();
       if (!ci) {
         rechazadas.push({ fila: filaNum, ci: "", motivo: "Falta la cédula de identidad" });
@@ -149,13 +155,12 @@ export async function POST(req: NextRequest) {
         rechazadas.push({ fila: filaNum, ci, motivo: "Cédula repetida dentro del mismo archivo" });
         continue;
       }
-      if (yaEnBase.has(ci)) {
-        rechazadas.push({ fila: filaNum, ci, motivo: "La cédula ya está registrada en el sistema" });
-        continue;
-      }
       vistas.add(ci);
 
-      const parseo = personaAdminSchema.safeParse(normalizado);
+      // Actualizar el objeto normalizado con la cédula como string para la validación
+      normalizado.cedulaIdentidad = ci;
+
+      const parseo = personaImportacionSchema.safeParse(normalizado);
       if (!parseo.success) {
         rechazadas.push({ fila: filaNum, ci, motivo: primerErrorZod(parseo.error) });
         continue;
@@ -165,7 +170,17 @@ export async function POST(req: NextRequest) {
       const tiempoEgrTit =
         d.anioEgreso && d.anioTitulacion ? (d.anioTitulacion - d.anioEgreso) * 12 : null;
 
-      insertables.push({ ...d, cedulaIdentidad: ci, tiempoEgresoTitulacionMeses: tiempoEgrTit });
+      const datosCompletos = { ...d, cedulaIdentidad: ci, tiempoEgresoTitulacionMeses: tiempoEgrTit };
+
+      if (yaEnBase.has(ci)) {
+        if (sobrescribir) {
+          actualizables.push({ ci, datos: datosCompletos });
+        } else {
+          rechazadas.push({ fila: filaNum, ci, motivo: "La cédula ya está registrada en el sistema" });
+        }
+      } else {
+        insertables.push(datosCompletos);
+      }
     }
 
     // ── Insertar por lotes ───────────────────────────────────────────────────
@@ -193,11 +208,43 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Actualizar por lotes concurrentes acotados ───────────────────────────
+    let actualizadas = 0;
+    const LOTE_UPDATE = 25;
+    const ahora = new Date();
+    for (let i = 0; i < actualizables.length; i += LOTE_UPDATE) {
+      const sublote = actualizables.slice(i, i + LOTE_UPDATE);
+      const resultados = await Promise.allSettled(
+        sublote.map(({ ci, datos }) =>
+          db
+            .update(personas)
+            .set({ ...datos, actualizadoEn: ahora })
+            .where(eq(personas.cedulaIdentidad, ci))
+        )
+      );
+      resultados.forEach((res, idx) => {
+        if (res.status === "fulfilled") {
+          actualizadas++;
+        } else {
+          rechazadas.push({
+            fila: 0,
+            ci: sublote[idx]!.ci,
+            motivo: "Error de base de datos al actualizar",
+          });
+        }
+      });
+    }
+
+    if (insertadas > 0 || actualizadas > 0) {
+      invalidarCacheDashboard();
+    }
+
+    const sesion = await leerSesionVigente(req);
     await registrarAuditoria({
       accion: "importar",
       entidad: "personas",
-      idUsuario: await (await leerSesionDeRequest(req))?.sub ?? null,
-      detalles: `Importación desde ${archivo.name}: ${insertadas} insertadas, ${rechazadas.length} rechazadas de ${crudos.length} filas`,
+      idUsuario: sesion?.sub ?? null,
+      detalles: `Importación desde ${archivo.name}: ${insertadas} insertadas, ${actualizadas} actualizadas, ${rechazadas.length} rechazadas de ${crudos.length} filas (sobrescribir=${sobrescribir})`,
       req,
     });
 
@@ -205,6 +252,7 @@ export async function POST(req: NextRequest) {
       archivo: archivo.name,
       totalFilas: crudos.length,
       insertadas,
+      actualizadas,
       rechazadas: rechazadas.length,
       // Limitar la respuesta para no enviar 50.000 errores al navegador.
       detalleRechazadas: rechazadas.slice(0, 200),

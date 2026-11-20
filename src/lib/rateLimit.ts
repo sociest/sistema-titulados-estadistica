@@ -12,33 +12,48 @@
 
 interface Registro {
   intentos: number;
+  maxIntentos: number;
   primerIntento: number;
   bloqueadoHasta: number;
 }
 
 const REGISTROS = new Map<string, Registro>();
 
-// Ventana y límites. 5 intentos por 15 minutos.
+// Ventana y límites. 5 intentos por (IP + cuenta), 20 globales por cuenta, 25 por IP.
 const VENTANA_MS = 15 * 60 * 1000;
-const MAX_INTENTOS = 5;
+const MAX_INTENTOS_PAR = 5;
+const MAX_INTENTOS_ID = 20;
+const MAX_INTENTOS_IP = 25;
 const BLOQUEO_MS = 15 * 60 * 1000;
+const MAX_REGISTROS_MEMORIA = 10_000;
 
-// Limpieza periódica para no crecer sin límite.
+// Limpieza periódica y cota dura de RAM para contenedor de 1 GB.
 const ULTIMA_LIMPIEZA = { valor: 0 };
 
-function limpiarSiHaceFalta() {
+function limpiarSiHaceFalta(forzar = false) {
   const ahora = Date.now();
-  if (ahora - ULTIMA_LIMPIEZA.valor < 5 * 60 * 1000) return;
+  if (!forzar && REGISTROS.size < MAX_REGISTROS_MEMORIA && ahora - ULTIMA_LIMPIEZA.valor < 60 * 1000) return;
   ULTIMA_LIMPIEZA.valor = ahora;
-  for (const clave of Array.from(REGISTROS.keys())) {
-    const r = REGISTROS.get(clave);
-    if (!r) continue;
-    if (r.bloqueadoHasta < ahora && ahora - r.primerIntento > VENTANA_MS) REGISTROS.delete(clave);
+  REGISTROS.forEach((r, clave) => {
+    if (r.bloqueadoHasta < ahora && ahora - r.primerIntento > VENTANA_MS) {
+      REGISTROS.delete(clave);
+    }
+  });
+  while (REGISTROS.size >= MAX_REGISTROS_MEMORIA) {
+    const masAntigua = REGISTROS.keys().next().value;
+    if (masAntigua === undefined) break;
+    REGISTROS.delete(masAntigua);
   }
 }
 
-function claves(ip: string, identificador: string): string[] {
-  return [`ip:${ip}`, `id:${identificador}`];
+function descriptoresClaves(ip: string, identificador: string): Array<{ clave: string; max: number }> {
+  const idNorm = identificador.slice(0, 160);
+  const ipNorm = ip.slice(0, 45);
+  return [
+    { clave: `ip_id:${ipNorm}:${idNorm}`, max: MAX_INTENTOS_PAR },
+    { clave: `ip:${ipNorm}`, max: MAX_INTENTOS_IP },
+    { clave: `id:${idNorm}`, max: MAX_INTENTOS_ID },
+  ];
 }
 
 export function verificarLimite(ip: string, identificador: string): { permitido: boolean; restantes: number; minutosEspera: number } {
@@ -46,9 +61,9 @@ export function verificarLimite(ip: string, identificador: string): { permitido:
   const ahora = Date.now();
 
   let peorBloqueo = 0;
-  let peorRestantes = MAX_INTENTOS;
+  let peorRestantes = MAX_INTENTOS_PAR;
 
-  for (const clave of claves(ip, identificador)) {
+  for (const { clave, max } of descriptoresClaves(ip, identificador)) {
     const r = REGISTROS.get(clave);
     if (!r) continue;
 
@@ -64,7 +79,7 @@ export function verificarLimite(ip: string, identificador: string): { permitido:
       continue;
     }
 
-    const restantes = Math.max(0, MAX_INTENTOS - r.intentos);
+    const restantes = Math.max(0, max - r.intentos);
     peorRestantes = Math.min(peorRestantes, restantes);
   }
 
@@ -79,21 +94,22 @@ export function verificarLimite(ip: string, identificador: string): { permitido:
 }
 
 export function registrarIntento(ip: string, identificador: string): void {
+  if (REGISTROS.size >= MAX_REGISTROS_MEMORIA) limpiarSiHaceFalta(true);
   const ahora = Date.now();
-  for (const clave of claves(ip, identificador)) {
+  for (const { clave, max } of descriptoresClaves(ip, identificador)) {
     const r = REGISTROS.get(clave);
     if (!r || ahora - r.primerIntento > VENTANA_MS) {
-      REGISTROS.set(clave, { intentos: 1, primerIntento: ahora, bloqueadoHasta: 0 });
+      REGISTROS.set(clave, { intentos: 1, maxIntentos: max, primerIntento: ahora, bloqueadoHasta: 0 });
       continue;
     }
     r.intentos++;
-    if (r.intentos >= MAX_INTENTOS) r.bloqueadoHasta = ahora + BLOQUEO_MS;
+    if (r.intentos >= max) r.bloqueadoHasta = ahora + BLOQUEO_MS;
   }
 }
 
-/** Limpia el contador tras un login exitoso. */
+/** Limpia solo el contador del par (IP + identificador) tras un login exitoso. */
 export function limpiarIntentos(ip: string, identificador: string): void {
-  for (const clave of claves(ip, identificador)) REGISTROS.delete(clave);
+  REGISTROS.delete(`ip_id:${ip.slice(0, 45)}:${identificador.slice(0, 160)}`);
 }
 
 /** Solo para pruebas. */

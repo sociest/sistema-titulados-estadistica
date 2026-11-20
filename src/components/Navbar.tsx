@@ -126,16 +126,25 @@ export default function Navbar() {
       {/* Espacio reservado para el navbar fijo (se mantiene visible al deslizar) */}
       <div className="h-[76px] w-full" aria-hidden="true" data-nav-espaciador />
       <nav data-navbar className="fixed top-0 inset-x-0 z-50 h-[76px] w-full border-b text-white" style={{ backgroundColor: "var(--nav-bg)", borderColor: "var(--nav-border)" }}>
-      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="flex items-center justify-between h-[76px] gap-2">
-          <Link href="/titulados" className="flex items-center gap-3 shrink-0 min-w-0">
-            <div className="w-16 h-16 flex items-center justify-center shadow-sm shrink-0 p-1 overflow-hidden">
-              <img src="/2png/logo-seguimiento.png" alt="Símbolo de Seguimiento a Titulados" className="w-full h-full object-contain" />
-            </div>
-            <div className="leading-tight hidden md:block">
-              <p className="text-[12px] font-black tracking-tight leading-none">SEGUIMIENTO A TITULADOS</p>
-              <p className="text-[13px] font-normal text-white/70 tracking-wide hidden xl:block">Carrera de Estadística · UMSA</p>
-            </div>
+          {/* El logo vectorial contiene isotipo + texto nítido sobre fondo transparente:
+              logocla.svg en modo claro, logoosc.svg en modo oscuro. */}
+          <Link href="/titulados" data-nav-cta className="flex items-center shrink-0 min-w-0 hover:no-underline" title="Seguimiento a Titulados · Inicio">
+            <img
+              src="/2png/logocla.svg?v=3"
+              alt="Seguimiento a Titulados"
+              width={207}
+              height={60}
+              className="block dark:hidden h-[50px] sm:h-[56px] md:h-[60px] w-auto object-contain select-none"
+            />
+            <img
+              src="/2png/logoosc.svg?v=3"
+              alt="Seguimiento a Titulados"
+              width={207}
+              height={60}
+              className="hidden dark:block h-[50px] sm:h-[56px] md:h-[60px] w-auto object-contain select-none"
+            />
           </Link>
 
           {/* Menú desplegado en laptop/pc; hamburguesa al reducir resolución */}
@@ -166,7 +175,7 @@ export default function Navbar() {
           </ul>
 
           <div className="flex items-center gap-1.5 shrink-0 justify-end min-w-0">
-            <button onClick={toggleTheme} className="p-2 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 min-h-[40px] flex items-center" title={theme === "light" ? "Noche 1 (oscuro actual)" : "Dis 1 (claro actual)"}>
+            <button onClick={toggleTheme} className="p-2 rounded-lg border border-white/20 text-white/80 hover:bg-white/10 min-h-[40px] flex items-center" title={theme === "light" ? "Cambiar a modo oscuro" : "Día 1 (modo claro)"}>
               {theme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-amber-300" />}
             </button>
 
@@ -180,9 +189,13 @@ export default function Navbar() {
                 <span className="hidden sm:inline">Cerrar sesión</span>
               </button>
             ) : !isEstadistica ? (
-                <Link href="/login" className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-white text-[#1e3a8a] font-bold text-[15px] hover:bg-white/90 shrink-0 min-h-[44px] shadow-sm">
+                <Link
+                  href="/login"
+                  data-nav-cta
+                  className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl bg-white text-[#0f2d52] font-extrabold text-[15px] hover:bg-blue-50 hover:text-[#082040] hover:no-underline shrink-0 min-h-[44px] shadow-sm ring-1 ring-white/80"
+                >
                 <LogIn className="w-4 h-4 shrink-0" />
-                <span className="hidden 2xl:inline">Ingresar</span>
+                <span className="hidden sm:inline">Ingresar</span>
               </Link>
             ) : null}
 
@@ -196,15 +209,16 @@ export default function Navbar() {
 
       {/* Dropdown hamburguesa */}
       {menuOpen && (
-        <div className="border-t border-white/10 shadow-2xl" style={{ backgroundColor: "var(--nav-bg)" }}>
+        <div className="border-t border-white/10 shadow-2xl max-h-[calc(100svh-76px)] overflow-y-auto" style={{ backgroundColor: "var(--nav-bg)" }}>
           <ul className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col">
             {menuItems.map((item) =>
               item.href ? (
                 <li key={item.label}>
                   <Link
                     href={item.href}
+                    data-nav-cta={item.active ? "true" : undefined}
                     onClick={(e) => manejarItem(e, item)}
-                    className={`block px-3 py-3 rounded-xl text-[17px] font-normal transition ${item.active ? "bg-white text-[var(--nav-bg)]" : "text-white hover:bg-white/10"}`}
+                    className={`block px-3 py-3 rounded-xl text-[17px] font-normal transition ${item.active ? "bg-white text-[var(--nav-bg)] font-semibold hover:no-underline" : "text-white hover:bg-white/10"}`}
                   >
                     {item.label}
                   </Link>

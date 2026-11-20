@@ -6,6 +6,8 @@ import { personas, solicitudTitulado, solicitudTituladoDocumento, solicitudTitul
 import { errorInterno, exigirKardex, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { ipDesde, registrarAuditoria } from "@/lib/auditoria";
 import { enviarCorreoTitulado } from "@/lib/correo";
+import { revocarSesionesDePersona } from "@/lib/sesiones";
+import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -64,10 +66,13 @@ export async function PATCH(req: NextRequest) {
   const sesion = await leerSesionVigente(req);
   if (!sesion) return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   try {
+    let personaPromovida: { id: number; correo: string | null; nombre: string } | null = null;
+
     const actualizada = await db.transaction(async (tx) => {
+      const ahora = new Date();
       const [row] = await tx.update(solicitudTitulado).set({
         estado: parsed.data.estado,
-        fechaRevision: new Date(),
+        fechaRevision: ahora,
         ipMaquinaAprobo: ipDesde(req),
         nombre: sesion.nombre || "USUARIO KARDEX",
         detalle,
@@ -85,26 +90,43 @@ export async function PATCH(req: NextRequest) {
         ip: row.ipMaquinaAprobo,
         detalle: row.detalle,
       });
+
+      // Cuando Kardex acepta la solicitud, el egresado pasa a TITULADO atómicamente.
+      if (row.estado === "ACEPTADO") {
+        const [promovida] = await tx
+          .update(personas)
+          .set({
+            tipo: "TITULADO",
+            estadoRegistro: "VALIDADO",
+            fechaValidacion: ahora,
+            planeaTitularse: null,
+            inicioProcesoTitulacion: null,
+            motivoNoTitulacion: null,
+            actualizadoEn: ahora,
+          })
+          .where(eq(personas.cedulaIdentidad, row.ci))
+          .returning({
+            id: personas.id,
+            correo: personas.correoElectronico,
+            nombre: personas.nombresApellidos,
+          });
+        personaPromovida = promovida ?? null;
+      }
+
       return row;
     });
 
     if (!actualizada) return NextResponse.json({ error: "La solicitud ya fue revisada o no existe" }, { status: 409 });
 
-    // Cuando Kardex acepta la solicitud, el egresado pasa a TITULADO.
     if (actualizada.estado === "ACEPTADO") {
-      await db
-        .update(personas)
-        .set({ tipo: "TITULADO", estadoRegistro: "VALIDADO", fechaValidacion: new Date() })
-        .where(eq(personas.cedulaIdentidad, actualizada.ci));
-
-      // Aviso por correo (fuera de la transacción: si falla, la aceptación se mantiene).
-      const [persona] = await db
-        .select({ correo: personas.correoElectronico, nombre: personas.nombresApellidos })
-        .from(personas)
-        .where(eq(personas.cedulaIdentidad, actualizada.ci))
-        .limit(1);
-      if (persona?.correo) {
-        await enviarCorreoTitulado({ destino: persona.correo, nombre: persona.nombre }).catch((e) =>
+      invalidarCacheDashboard();
+      const info = personaPromovida as { id: number; correo: string | null; nombre: string } | null;
+      if (info?.id) {
+        // Revocar sesiones con rol EGRESADO obsoleto para que reingrese como TITULADO.
+        await revocarSesionesDePersona(info.id, "Promoción aprobada de EGRESADO a TITULADO");
+      }
+      if (info?.correo) {
+        await enviarCorreoTitulado({ destino: info.correo, nombre: info.nombre }).catch((e) =>
           console.error("[kardex] aviso de titulación no enviado:", e instanceof Error ? e.message : e)
         );
       }

@@ -336,7 +336,7 @@ async function main() {
     {
       titulo: "Curso de actualización en análisis de datos con R",
       cuerpo:
-        "Se Dictará un curso de actualización en R orientado a graduados de la carrera.\n\nEl curso es de carácter gratuito y se develope los sábados por la mañana.\n\nCupo limitado. Inscripciones abiertas en la secretaría.",
+        "Se dictará un curso de actualización en R orientado a graduados de la carrera.\n\nEl curso es de carácter gratuito y se desarrolla los sábados por la mañana.\n\nCupo limitado. Inscripciones abiertas en la secretaría.",
       tipo: "curso_evento",
       categoria: "noticia",
       fecha: "2026-08-20",

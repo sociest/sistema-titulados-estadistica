@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, FileSpreadsheet, Download,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 /**
  * Importación masiva desde Excel o CSV (PDF 4.2).
@@ -19,6 +20,7 @@ interface Resultado {
   archivo: string;
   totalFilas: number;
   insertadas: number;
+  actualizadas: number;
   rechazadas: number;
   detalleRechazadas: Array<{ fila: number; ci: string; motivo: string }>;
   detalleTruncado: boolean;
@@ -29,8 +31,10 @@ TITULADO,"Ana María Ñuñez Rojas",1234567,FEMENINO,I/2016,II/2020,2020,2021,Te
 EGRESADO,"Luis Carlos Pérez Soto",7654321,MASCULINO,II/2018,I/2023,2023,,,,SI,NO,LABORAL,luis@example.com,70123456,,Santa Cruz Bolivia,EMPLEADO,OTRO,Gobierno municipal,Técnico Estadístico,SI,,4,`;
 
 export default function AdminImportarPage() {
+  const { user, loading: authLoading } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [sobrescribir, setSobrescribir] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [error, setError] = useState("");
@@ -46,6 +50,7 @@ export default function AdminImportarPage() {
     try {
       const fd = new FormData();
       fd.append("archivo", archivo);
+      fd.append("sobrescribir", String(sobrescribir));
 
       const res = await fetch("/api/importar", { method: "POST", body: fd });
       const j = await res.json();
@@ -68,6 +73,22 @@ export default function AdminImportarPage() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const REGLAS_IMPORTACION = (
+    <>
+      <li>La <b>cédula de identidad</b> es única: si ya existe en el sistema, la fila se rechaza <b>a menos que marques "Sobrescribir"</b> (entonces actualiza el registro). Si se repite dentro del archivo, siempre se rechaza.</li>
+      <li>Un <b>titulado</b> necesita año y modalidad de titulación.</li>
+      <li>Un <b>egresado</b> necesita &laquo;&iquest;Planea titularse?&raquo;. Si responde S&iacute;, necesita &laquo;&iquest;Inici&oacute; proceso?&raquo;; y si esa respuesta es No (o si respondi&oacute; No/No sabe), necesita el motivo.</li>
+      <li>Si el sector es <b>OTRO</b>, hay que llenar la columna <code>sector_trabajo_otro</code>.</li>
+      <li>Valores de enum en mayúsculas exactamente como en la plantilla: <code>TITULADO</code>, <code>EMPLEADO</code>, <code>PUBLICO</code>, <code>SI</code>/<code>NO</code>.</li>
+      <li>El archivo se procesa en memoria y no queda almacenado en el servidor.</li>
+    </>
+  );
+
+  if (authLoading) {
+    return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
+  }
+  if (!user || user.rol !== "admin") return null;
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
@@ -123,6 +144,15 @@ export default function AdminImportarPage() {
                 Quitar
               </button>
             )}
+            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sobrescribir}
+                onChange={(e) => setSobrescribir(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+              />
+              Sobrescribir si la cédula ya existe
+            </label>
             <button
               onClick={subir}
               disabled={!archivo || subiendo}
@@ -142,10 +172,11 @@ export default function AdminImportarPage() {
 
       {resultado && (
         <>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Filas leídas", valor: resultado.totalFilas, color: "text-slate-900 dark:text-white" },
               { label: "Insertadas", valor: resultado.insertadas, color: "text-emerald-700 dark:text-emerald-400" },
+              { label: "Actualizadas", valor: resultado.actualizadas, color: "text-blue-700 dark:text-blue-400" },
               { label: "Rechazadas", valor: resultado.rechazadas, color: "text-red-600 dark:text-red-400" },
             ].map((c) => (
               <div key={c.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-center">
@@ -159,6 +190,13 @@ export default function AdminImportarPage() {
             <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               Se importaron {resultado.insertadas} registros de <b>{resultado.archivo}</b>.
+            </div>
+          )}
+
+          {resultado.actualizadas > 0 && (
+            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-900 rounded-xl px-4 py-3 text-sm text-blue-800 dark:text-blue-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              Se actualizaron {resultado.actualizadas} registros existentes de <b>{resultado.archivo}</b>.
             </div>
           )}
 
@@ -204,12 +242,7 @@ export default function AdminImportarPage() {
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
         <h2 className="font-black text-sm text-slate-900 dark:text-white mb-3">Reglas de la importación</h2>
         <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400 list-disc pl-5">
-          <li>La <b>cédula de identidad</b> es única: si ya existe en el sistema o se repite dentro del archivo, la fila se rechaza.</li>
-          <li>Un <b>titulado</b> necesita año y modalidad de titulación.</li>
-          <li>Un <b>egresado</b> necesita «¿Planea titularse?». Si responde Sí, necesita «¿Inició proceso?»; y si esa respuesta es No (o si respondió No/No sabe), necesita el motivo.</li>
-          <li>Si el sector es <b>OTRO</b>, hay que llenar la columna <code>sector_trabajo_otro</code>.</li>
-          <li>Valores de enum en mayúsculas exactamente como en la plantilla: <code>TITULADO</code>, <code>EMPLEADO</code>, <code>PUBLICO</code>, <code>SI</code>/<code>NO</code>.</li>
-          <li>El archivo se procesa en memoria y no queda almacenado en el servidor.</li>
+          {REGLAS_IMPORTACION}
         </ul>
       </div>
     </div>

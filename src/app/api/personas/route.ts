@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { aFiltroEnum, aValorEnum } from "@/lib/filtros";
 import { personas } from "@/db/schema";
-import { and, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
-import { exigirAdmin, exigirAdminOContacto, verificarCsrf, errorInterno } from "@/lib/guards";
-import { leerSesionDeRequest } from "@/lib/sesion";
+import { and, count, desc, eq, ilike, ne, or, sql, type SQL } from "drizzle-orm";
+import { exigirAdmin, exigirAdminOContacto, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { registrarCambio } from "@/lib/auditoriaTablas";
 import { calcularCambios } from "@/lib/diff";
 import { personaAdminSchema, personaAutogestionSchema, primerErrorZod } from "@/lib/validaciones";
+import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
       // con `activo: false` es lo que permite al frontend explicar el bloqueo en vez de
       // mostrar un formulario vacío.
       if (!rows[0]!.activo) {
-        const sesion = await leerSesionDeRequest(req);
+        const sesion = await leerSesionVigente(req);
         if (sesion?.rol !== "admin") {
           return NextResponse.json(
             { error: "Su registro se encuentra dado de baja. Contacte a la Carrera.", activo: false },
@@ -97,8 +97,10 @@ export async function GET(req: NextRequest) {
     if (estadoValido) conds.push(eq(personas.estadoLaboral, estadoValido));
 
     const modalidad = sp.get("modalidad");
-    if (modalidad && modalidad !== "TODAS")
-      conds.push(eq(personas.modalidadTitulacion, aFiltroEnum(personas.modalidadTitulacion, modalidad, "TODAS")!));
+    if (modalidad && modalidad !== "TODAS") {
+      const modalidadValida = aFiltroEnum(personas.modalidadTitulacion, modalidad, "TODAS");
+      if (modalidadValida) conds.push(eq(personas.modalidadTitulacion, modalidadValida));
+    }
 
     const anioMin = sp.get("anioMin");
     if (anioMin)
@@ -134,27 +136,25 @@ export async function GET(req: NextRequest) {
     const ordenCol = ORDENES[sp.get("orden") ?? "nombre"] ?? personas.nombresApellidos;
     const direccion = sp.get("dir") === "desc" ? desc(ordenCol) : ordenCol;
 
-    const [{ total }] = await db.select({ total: count() }).from(personas).where(where);
-
-    const filas = await db
-      .select()
-      .from(personas)
-      .where(where)
-      .orderBy(direccion)
-      .limit(perPage)
-      .offset((pagina - 1) * perPage);
-
-    // Totales por tipo, para las pestañas del panel. Cuentan los mismos registros que
-    // el listado: si no, las pestañas mostrarían un total que la tabla no tiene.
-    const resumen = await db
-      .select({
-        tipo: personas.tipo,
-        n: sql<number>`count(*)::int`,
-        empleados: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE'))::int`,
-      })
-      .from(personas)
-      .where(conds.length ? and(...conds) : undefined)
-      .groupBy(personas.tipo);
+    const [[{ total }], filas, resumen] = await Promise.all([
+      db.select({ total: count() }).from(personas).where(where),
+      db
+        .select()
+        .from(personas)
+        .where(where)
+        .orderBy(direccion)
+        .limit(perPage)
+        .offset((pagina - 1) * perPage),
+      db
+        .select({
+          tipo: personas.tipo,
+          n: sql<number>`count(*)::int`,
+          empleados: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE'))::int`,
+        })
+        .from(personas)
+        .where(where)
+        .groupBy(personas.tipo),
+    ]);
 
     return NextResponse.json({
       filas,
@@ -204,12 +204,11 @@ export async function POST(req: NextRequest) {
     }
     const datos = parseo.data;
 
-    // Cédula única e irrepetible
     const ci = datos.cedulaIdentidad.trim().toUpperCase();
     const duplicado = await db
       .select({ id: personas.id, nombre: personas.nombresApellidos })
       .from(personas)
-      .where(sql`upper(${personas.cedulaIdentidad}) = ${ci}`)
+      .where(eq(personas.cedulaIdentidad, ci))
       .limit(1);
 
     if (duplicado.length) {
@@ -238,13 +237,14 @@ export async function POST(req: NextRequest) {
     };
 
     const [creada] = await db.insert(personas).values(fila).returning();
+    invalidarCacheDashboard();
 
-    const sesionAlta = await leerSesionDeRequest(req);
+    const sesionAlta = await leerSesionVigente(req);
     await registrarCambio({
       tabla: "audit_personas",
       accion: "crear",
       entidadId: creada!.id,
-      idUsuario: sesionAlta?.sub ?? null,
+      idUsuario: sesionAlta?.rol === "admin" ? sesionAlta.sub : null,
       rol: sesionAlta?.rol ?? null,
       anterior: null,
       nuevo: creada,
@@ -276,7 +276,7 @@ export async function PATCH(req: NextRequest) {
   const denegado = await exigirAdminOContacto(req, ciNorm);
   if (denegado) return denegado;
 
-  const sesion = await leerSesionDeRequest(req);
+  const sesion = await leerSesionVigente(req);
   const esAdmin = sesion?.rol === "admin";
 
   try {
@@ -296,14 +296,46 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "No se encontró el registro" }, { status: 404 });
 
     const anterior = actual[0]!;
+    if (!esAdmin && (!anterior.activo || anterior.estadoRegistro !== "VALIDADO")) {
+      return NextResponse.json(
+        { error: "Su registro no se encuentra habilitado para edición." },
+        { status: 403 }
+      );
+    }
 
-    /**
-     * Consentimiento acceptance (auto-fill, server-controlled). Only set on the
-     * self-service branch and never comes from the request body as a mutable value:
-     * the server stamps the date and records the accepted text version.
-     */
+    // Lista blanca estricta de columnas editables (evita Mass Assignment sobre id, consentimiento,
+    // baja lógica, supresión o cédula).
+    const CAMPOS_ADMIN_EDITABLES = [
+      "tipo",
+      "nombresApellidos",
+      "genero",
+      "semestreIngreso",
+      "semestreEgreso",
+      "anioEgreso",
+      "anioTitulacion",
+      "modalidadTitulacion",
+      "areaEspecializacion",
+      "nivelEstudio",
+      "realizoCursoUltimos3Anos",
+      "ultimoCurso",
+      "planeaTitularse",
+      "inicioProcesoTitulacion",
+      "motivoNoTitulacion",
+      "correoElectronico",
+      "telefono",
+      "redesSociales",
+      "ciudadRegionTrabajo",
+      "imagenUrl",
+      "estadoLaboral",
+      "sectorTrabajo",
+      "sectorTrabajoOtro",
+      "ocupacionCargo",
+      "trabajaEnEstadistica",
+      "tiempoEgresoTitulacionMeses",
+      "tiempoInsercionLaboralMeses",
+      "observaciones",
+    ];
 
-    // El titular no puede tocar campos K ni cambiar su tipo.
     const CAMPOS_AUTOGESTION = [
       "correoElectronico",
       "telefono",
@@ -324,88 +356,103 @@ export async function PATCH(req: NextRequest) {
       "motivoNoTitulacion",
     ];
 
-    const permitido = esAdmin
-      ? Object.keys(body)
-      : CAMPOS_AUTOGESTION.filter((k) => body[k] !== undefined);
-
-    const descartados = Object.keys(body).filter((k) => !permitido.includes(k));
-    if (descartados.length && !esAdmin) {
-      console.warn(`[api/personas] campos ignorados (no editables por el titular): ${descartados}`);
+    if (
+      esAdmin &&
+      body.cedulaIdentidad !== undefined &&
+      String(body.cedulaIdentidad).trim().toUpperCase() !== anterior.cedulaIdentidad
+    ) {
+      return NextResponse.json(
+        { error: "La cédula de identidad es inmutable; dé de baja y cree un nuevo registro si requiere corregirla." },
+        { status: 400 }
+      );
     }
+
+    const listaPermitida = esAdmin ? CAMPOS_ADMIN_EDITABLES : CAMPOS_AUTOGESTION;
+    const permitido = listaPermitida.filter((k) => body[k] !== undefined);
 
     if (!permitido.length)
       return NextResponse.json({ error: "Nada para actualizar" }, { status: 400 });
 
-    // Validar el objeto resultante con el esquema correspondiente.
+    const patch: Record<string, unknown> = {};
+
     if (esAdmin) {
-      // Para el admin se valida el objeto completo (anterior + cambios), lo que también
-      // comprueba la matriz condicional de egresados.
-      const combinado = {
-        ...anterior,
-        ...Object.fromEntries(permitido.map((k) => [k, body[k]])),
+      // Construir objeto base solo con las propiedades que personaAdminSchema conoce
+      const baseValidable: Record<string, unknown> = {
+        cedulaIdentidad: anterior.cedulaIdentidad,
       };
-      const check = personaAdminSchema.safeParse(combinado);
+      for (const k of CAMPOS_ADMIN_EDITABLES) {
+        baseValidable[k] = k in body && body[k] !== undefined ? body[k] : anterior[k as keyof typeof anterior];
+      }
+      const check = personaAdminSchema.safeParse(baseValidable);
       if (!check.success) {
         return NextResponse.json(
           { error: primerErrorZod(check.error), campos: check.error.flatten().fieldErrors },
           { status: 400 }
         );
       }
-    } else {
-      // Para el titular: esquema estricto sobre SOLO los campos permitidos. Si se envió
-      // algún campo de Kardex, `permitido` ya lo eliminó, así que aquí se valida el perfil
-      // dinámico completo y se descarta lo que no cuadre.
-      const soloDinamicos = {
-        ...Object.fromEntries(
-          CAMPOS_AUTOGESTION.filter((k) => body[k] !== undefined).map((k) => [k, body[k]])
-        ),
-      };
-      if (Object.keys(soloDinamicos).length) {
-        const check = personaAutogestionSchema.safeParse(soloDinamicos);
-        if (!check.success) {
-          return NextResponse.json(
-            { error: primerErrorZod(check.error), campos: check.error.flatten().fieldErrors },
-            { status: 400 }
-          );
-        }
+      const validado = check.data as Record<string, unknown>;
+      for (const k of permitido) {
+        patch[k] = validado[k] === "" ? null : validado[k];
       }
-
+    } else {
+      const soloDinamicos = Object.fromEntries(permitido.map((k) => [k, body[k]]));
+      // Si el titular cambia otro campo y ya tenía sector OTRO sin reenviar sectorTrabajoOtro, conservarlo en la validación
+      if (soloDinamicos.sectorTrabajo === "OTRO" && soloDinamicos.sectorTrabajoOtro === undefined && anterior.sectorTrabajoOtro) {
+        soloDinamicos.sectorTrabajoOtro = anterior.sectorTrabajoOtro;
+      }
+      const check = personaAutogestionSchema.safeParse(soloDinamicos);
+      if (!check.success) {
+        return NextResponse.json(
+          { error: primerErrorZod(check.error), campos: check.error.flatten().fieldErrors },
+          { status: 400 }
+        );
+      }
+      const validado = check.data as Record<string, unknown>;
+      for (const k of permitido) {
+        patch[k] = validado[k] === "" ? null : validado[k];
+      }
     }
 
-    const patch: Record<string, unknown> = {};
-    for (const k of permitido) {
-      const v = body[k];
-      if (v === undefined) continue;
-      patch[k] = v === "" ? null : v;
+    // Evitar correos duplicados entre titulares (impediría el login por correo).
+    if (typeof patch.correoElectronico === "string" && patch.correoElectronico.trim() !== "") {
+      const correoNorm = patch.correoElectronico.trim().toLowerCase();
+      patch.correoElectronico = correoNorm;
+      const correoDuplicado = await db
+        .select({ id: personas.id })
+        .from(personas)
+        .where(and(sql`lower(${personas.correoElectronico}) = ${correoNorm}`, ne(personas.id, anterior.id)))
+        .limit(1);
+      if (correoDuplicado.length) {
+        return NextResponse.json(
+          {
+            error: "Ese correo electrónico ya está asociado a otro registro.",
+            campos: { correoElectronico: ["Correo ya registrado"] },
+          },
+          { status: 409 }
+        );
+      }
     }
 
-    if (patch.trabajaEnEstadistica !== undefined) {
-      patch.trabajaEnEstadistica =
-        patch.trabajaEnEstadistica === true ||
-        patch.trabajaEnEstadistica === "true" ||
-        patch.trabajaEnEstadistica === "SI";
-    }
-    if (patch.tiempoInsercionLaboralMeses !== undefined && patch.tiempoInsercionLaboralMeses !== null) {
-      const n = parseInt(String(patch.tiempoInsercionLaboralMeses), 10);
-      patch.tiempoInsercionLaboralMeses = Number.isFinite(n) && n >= 0 ? n : null;
-    }
-
-    // Coherencia del sector "Otro"
-    if (patch.sectorTrabajo !== "OTRO") patch.sectorTrabajoOtro = null;
-    if (patch.sectorTrabajo === "OTRO" && !patch.sectorTrabajoOtro) {
-      patch.sectorTrabajoOtro = actual[0]!.sectorTrabajoOtro ?? null;
+    // Coherencia del sector "Otro" SOLO cuando `sectorTrabajo` fue modificado o enviado
+    if (patch.sectorTrabajo !== undefined) {
+      if (patch.sectorTrabajo !== "OTRO") {
+        patch.sectorTrabajoOtro = null;
+      } else if (!patch.sectorTrabajoOtro) {
+        patch.sectorTrabajoOtro = anterior.sectorTrabajoOtro ?? null;
+      }
     }
 
     // Solo los egresados pueden tener los campos de titulación.
-    if (anterior.tipo === "TITULADO") {
+    const tipoEfectivo = (patch.tipo as string | undefined) ?? anterior.tipo;
+    if (tipoEfectivo === "TITULADO") {
       patch.planeaTitularse = null;
       patch.inicioProcesoTitulacion = null;
       patch.motivoNoTitulacion = null;
     }
 
     // Recalcular el tiempo egreso → titulación si cambian los años.
-    const anioEgreso = patch.anioEgreso ?? anterior.anioEgreso;
-    const anioTitulacion = patch.anioTitulacion ?? anterior.anioTitulacion;
+    const anioEgreso = patch.anioEgreso !== undefined ? patch.anioEgreso : anterior.anioEgreso;
+    const anioTitulacion = patch.anioTitulacion !== undefined ? patch.anioTitulacion : anterior.anioTitulacion;
     const nEgreso = anioEgreso == null ? NaN : Number(anioEgreso);
     const nTitulacion = anioTitulacion == null ? NaN : Number(anioTitulacion);
     if (Number.isFinite(nEgreso) && Number.isFinite(nTitulacion) && nTitulacion >= nEgreso) {
@@ -419,16 +466,13 @@ export async function PATCH(req: NextRequest) {
       .set(patch as Record<string, unknown>)
       .where(eq(personas.cedulaIdentidad, ciNorm))
       .returning();
-
-    const cambios = permitido.filter(
-      (k) => JSON.stringify(anterior[k as keyof typeof anterior]) !== JSON.stringify(actualizada![k as keyof typeof actualizada])
-    );
+    invalidarCacheDashboard();
 
     await registrarCambio({
       tabla: "audit_personas",
       accion: "editar",
       entidadId: anterior.id,
-      idUsuario: sesion?.sub ?? null,
+      idUsuario: esAdmin ? sesion?.sub ?? null : null,
       rol: sesion?.rol ?? null,
       anterior,
       nuevo: actualizada,

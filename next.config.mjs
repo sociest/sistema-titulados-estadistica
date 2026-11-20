@@ -29,6 +29,7 @@ const cabecerasSeguridad = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
   {
     key: "Content-Security-Policy",
@@ -38,7 +39,7 @@ const cabecerasSeguridad = [
       // Los estilos generados en línea por Tailwind y los estilos de Next requieren
       // 'unsafe-inline'; no se relaja ningún otro tipo de recurso.
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://images.unsplash.com",
+      "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       "connect-src 'self' https://challenges.cloudflare.com",
       "frame-src https://challenges.cloudflare.com https://www.google.com",
@@ -52,6 +53,7 @@ const cabecerasSeguridad = [
 
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
   async headers() {
     return [
       {

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { GraduationCap, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import TurnstileWidget from "@/components/TurnstileWidget";
 
 /**
  * /registro  ·  Alta pública de egresados (decisión D5, opción B).
@@ -48,6 +49,7 @@ export default function PaginaRegistro() {
   const [planeaTitularse, setPlaneaTitularse] = useState("");
   const [inicioProceso, setInicioProceso] = useState("");
   const [motivo, setMotivo] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [acepta, setAcepta] = useState(false);
   const [r, setR] = useState<Resultado | null>(null);
@@ -111,6 +113,7 @@ export default function PaginaRegistro() {
     // validación del cliente se hubiera saltado.
     cuerpo.consentimientoPrivacidad = true;
     cuerpo.versionAvisoPrivacidad = VERSION_AVISO;
+    cuerpo.turnstileToken = turnstileToken;
 
     try {
       const res = await fetch("/api/registro", {
@@ -141,7 +144,7 @@ export default function PaginaRegistro() {
   }
 
   return (
-    <main className="min-h-screen px-4 py-12 text-[var(--fg)]">
+    <div className="min-h-screen px-4 py-12 text-[var(--fg)]">
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <span className="w-11 h-11 rounded-xl bg-[var(--nav-bg)] flex items-center justify-center">
@@ -211,8 +214,8 @@ export default function PaginaRegistro() {
               <dt className="font-bold inline">Conservación:</dt>{" "}
               <dd className="inline">
                 mientras figure en el registro institucional de la carrera. Los indicadores
-                estadísticos que se publican no identifican personas: los grupos de menos de
-                5 egresados no se publican.
+                estadísticos que se publican son únicamente conteos agregados y nunca incluyen
+                datos que permitan identificar a una persona.
               </dd>
             </div>
             <div>
@@ -231,32 +234,31 @@ export default function PaginaRegistro() {
         </section>
 
         {r?.estado === "enviado" && (
-          <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 mb-6">
-            <div className="flex items-center gap-2 text-emerald-700 mb-2">
+          <div className="rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 p-5 mb-6">
+            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 mb-2">
               <CheckCircle2 className="w-5 h-5" />
               <h2 className="font-bold">Solicitud recibida</h2>
             </div>
-            <p className="text-sm text-emerald-900">{r.mensaje}</p>
+            <p className="text-sm text-emerald-900 dark:text-emerald-100">{r.mensaje}</p>
             {r.enlaceDevuelto && (
-              <p className="text-xs text-emerald-800 mt-3">
+              <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-3">
                 <strong>Nota del servidor:</strong> no hay servicio de correo configurado en
-                esta instalación, así que el enlace de verificación se devolvió en la respuesta
-                y quedó registrado en la consola del servidor. El flujo completo queda probado,
-                pero falta configurar el SMTP para que el correo llegue solo.
+                esta instalación, así que el enlace de verificación quedó registrado en la
+                consola del servidor.
               </p>
             )}
           </div>
         )}
 
         {r?.estado === "error" && (
-          <div className="rounded-2xl border border-red-300 bg-red-50 p-5 mb-6">
-            <div className="flex items-center gap-2 text-red-700 mb-2">
+          <div className="rounded-2xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/50 p-5 mb-6">
+            <div className="flex items-center gap-2 text-red-700 dark:text-red-300 mb-2">
               <AlertTriangle className="w-5 h-5" />
               <h2 className="font-bold">No se pudo enviar</h2>
             </div>
-            <p className="text-sm text-red-900">{r.mensaje}</p>
+            <p className="text-sm text-red-900 dark:text-red-100">{r.mensaje}</p>
             {r.campos && (
-              <ul className="mt-2 text-xs text-red-800 space-y-1">
+              <ul className="mt-2 text-xs text-red-800 dark:text-red-200 space-y-1">
                 {Object.entries(r.campos).map(([campo, msgs]) => (
                   <li key={campo}>
                     <b>{campo}:</b> {msgs.join(", ")}
@@ -411,6 +413,14 @@ export default function PaginaRegistro() {
             </span>
           </label>
 
+          <div className="flex justify-center">
+            <TurnstileWidget
+              onSuccess={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken(null)}
+              onError={() => setTurnstileToken(null)}
+            />
+          </div>
+
           <button
             type="submit"
             disabled={enviando || !acepta}
@@ -426,6 +436,6 @@ export default function PaginaRegistro() {
           </p>
         </form>
       </div>
-    </main>
+    </div>
   );
 }

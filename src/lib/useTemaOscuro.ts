@@ -4,21 +4,11 @@ import { useEffect, useState } from "react";
 /**
  * Indica si el tema activo es el oscuro.
  *
- * El proyecto usa `darkMode: "class"` (ver tailwind.config.ts) y el script inline de
- * src/app/layout.tsx aplica la clase `dark` sobre <html> antes del primer pintado, leyendo
- * localStorage["theme"] y la paleta elegida. No hay ThemeProvider ni next-themes, y Recharts
- * dibuja SVG donde las clases `dark:` de Tailwind no aplican, así que los gráficos tienen que
- * resolver el tema en el cliente.
- *
- * Se observa la clase de <html> con un MutationObserver porque el toggle de Navbar.tsx la
- * cambia en caliente, sin recargar ni remontar el árbol de componentes.
+ * Arranca en `false` para coincidir siempre con el HTML SSR y actualiza tras montar,
+ * evitando desajustes de hidratación en React.
  */
 export function useTemaOscuro(): boolean {
-  const [oscuro, setOscuro] = useState<boolean>(
-    () =>
-      typeof document !== "undefined" &&
-      document.documentElement.classList.contains("dark")
-  );
+  const [oscuro, setOscuro] = useState<boolean>(false);
 
   useEffect(() => {
     const raiz = document.documentElement;

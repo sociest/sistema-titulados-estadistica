@@ -16,19 +16,24 @@ const MAX_ARCHIVOS = 5;
 const MAX_BYTES = 10 * 1024 * 1024;
 const STORAGE_DIR = path.resolve(process.env.SOLICITUDES_STORAGE_DIR || path.join(process.cwd(), "storage", "solicitudes"));
 
-type DocumentoValidado = {
+type DocumentoMetadata = {
   nombreOriginal: string;
   nombreAlmacenado: string;
   tipoMime: "application/pdf" | "image/png" | "image/jpeg";
   tamanoBytes: number;
-  bytes: Buffer;
 };
 
-function detectarTipo(bytes: Buffer): DocumentoValidado["tipoMime"] | null {
+const PATRON_PDF_PELIGROSO = /\/(?:JavaScript|JS|Launch|EmbeddedFile|RichMedia|XFA)\b/i;
+
+function detectarTipo(bytes: Buffer): DocumentoMetadata["tipoMime"] | null {
   if (bytes.subarray(0, 5).toString("ascii") === "%PDF-") return "application/pdf";
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   return null;
+}
+
+function pdfContieneAccionesActivas(bytes: Buffer): boolean {
+  return PATRON_PDF_PELIGROSO.test(bytes.toString("latin1"));
 }
 
 export async function GET(req: NextRequest) {
@@ -78,21 +83,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Adjunte entre 1 y ${MAX_ARCHIVOS} documentos` }, { status: 400 });
   }
 
-  const documentos: DocumentoValidado[] = [];
   for (const file of archivos) {
-    if (file.size > MAX_BYTES) return NextResponse.json({ error: `${file.name}: el máximo por archivo es 10 MB` }, { status: 413 });
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const tipoMime = detectarTipo(bytes);
-    if (!tipoMime) return NextResponse.json({ error: `${file.name}: sólo se aceptan PDF, PNG o JPEG válidos` }, { status: 415 });
-    const extension = tipoMime === "application/pdf" ? "pdf" : tipoMime === "image/png" ? "png" : "jpg";
-    const nombreOriginal = path.basename(file.name).replace(/[\r\n\0]/g, "_").slice(0, 255) || `documento.${extension}`;
-    documentos.push({
-      nombreOriginal,
-      nombreAlmacenado: `${randomUUID()}.${extension}`,
-      tipoMime,
-      tamanoBytes: bytes.length,
-      bytes,
-    });
+    if (file.size > MAX_BYTES) {
+      return NextResponse.json({ error: `${file.name}: el máximo por archivo es 10 MB` }, { status: 413 });
+    }
   }
 
   const [persona] = await db.select({ ci: personas.cedulaIdentidad }).from(personas).where(and(
@@ -110,17 +104,40 @@ export async function POST(req: NextRequest) {
   if (yaPendiente.length) return NextResponse.json({ error: "Ya existe una solicitud pendiente" }, { status: 409 });
 
   const archivosGuardados: string[] = [];
+  const documentos: DocumentoMetadata[] = [];
   try {
     await mkdir(STORAGE_DIR, { recursive: true, mode: 0o700 });
-    for (const documento of documentos) {
-      const destino = path.join(STORAGE_DIR, documento.nombreAlmacenado);
-      await writeFile(destino, documento.bytes, { flag: "wx", mode: 0o600 });
+    for (const file of archivos) {
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const tipoMime = detectarTipo(bytes);
+      if (!tipoMime) {
+        await Promise.all(archivosGuardados.map((f) => unlink(f).catch(() => undefined)));
+        return NextResponse.json({ error: `${file.name}: sólo se aceptan PDF, PNG o JPEG válidos` }, { status: 415 });
+      }
+      if (tipoMime === "application/pdf" && pdfContieneAccionesActivas(bytes)) {
+        await Promise.all(archivosGuardados.map((f) => unlink(f).catch(() => undefined)));
+        return NextResponse.json(
+          { error: `${file.name}: por seguridad no se aceptan archivos PDF con scripts o acciones incrustadas` },
+          { status: 415 }
+        );
+      }
+      const extension = tipoMime === "application/pdf" ? "pdf" : tipoMime === "image/png" ? "png" : "jpg";
+      const nombreOriginal = path.basename(file.name).replace(/[\r\n\0]/g, "_").slice(0, 255) || `documento.${extension}`;
+      const nombreAlmacenado = `${randomUUID()}.${extension}`;
+      const destino = path.join(STORAGE_DIR, nombreAlmacenado);
+      await writeFile(destino, bytes, { flag: "wx", mode: 0o600 });
       archivosGuardados.push(destino);
+      documentos.push({
+        nombreOriginal,
+        nombreAlmacenado,
+        tipoMime,
+        tamanoBytes: bytes.length,
+      });
     }
 
     const solicitud = await db.transaction(async (tx) => {
       const [creada] = await tx.insert(solicitudTitulado).values({ ci: sesion.ci }).returning();
-      await tx.insert(solicitudTituladoDocumento).values(documentos.map(({ bytes: _bytes, ...metadata }) => ({
+      await tx.insert(solicitudTituladoDocumento).values(documentos.map((metadata) => ({
         solicitudId: creada!.id,
         ...metadata,
       })));

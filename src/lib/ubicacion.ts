@@ -11,7 +11,12 @@ export const UBICACION = {
   direccion: "Av. Villazón N° 1995, Monoblock Central, 2do piso",
   ciudad: "La Paz, Bolivia",
   /** Enlace corto oficial (abre la app o el sitio de Google Maps). */
-  MAPA_ENLACE: "https://maps.app.goo.gl/Q4CwkJEgTZ3gCRKHA",
+  /** Monoblock Central (coordenadas exactas del enlace oficial, para que el pin aparezca). */
+  MAPA_ENLACE: "https://maps.app.goo.gl/2NmA5yR83nkeG4ce6",
   MAPA_EMBED_URL:
-    "https://www.google.com/maps?q=Av.+Villaz%C3%B3n+1995,+La+Paz,+Bolivia&hl=es&z=17&output=embed",
+    "https://www.google.com/maps?q=-16.504687,-68.1295342&hl=es&z=17&output=embed",
+  /** Segunda ubicación: Dirección Cota Cota (coordenadas exactas del enlace oficial). */
+  MAPA_ENLACE_COTA_COTA: "https://maps.app.goo.gl/fAxiS8daJgCWYfP78",
+  MAPA_EMBED_URL_COTA_COTA:
+    "https://www.google.com/maps?q=-16.539890487061147,-68.0678615960529&hl=es&z=17&output=embed",
 } as const;

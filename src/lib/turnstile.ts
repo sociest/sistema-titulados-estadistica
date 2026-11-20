@@ -17,20 +17,13 @@ export async function verificarTurnstile(
   token: string | null | undefined,
   remoteIp?: string | null
 ): Promise<{ valido: boolean; motivo?: string }> {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY?.trim();
+  const secretKey = (process.env.TURNSTILE_SECRET_KEY ?? "").trim();
 
-  // Cloudflare publica claves de prueba gratuitas. Se usan cuando NO hay una clave
-  // real configurada en el entorno (desarrollo local o suite de integración):
-  //   1x...  siempre pasa
-  //   2x...  siempre falla
-  //   3x...  pasa, pero exige interacción
-  // https://developers.cloudflare.com/turnstile/troubleshooting/testing/
-  if (!secretKey || secretKey.startsWith("1x") || secretKey.startsWith("3x")) {
-    console.warn(
-      secretKey
-        ? "[TURNSTILE] Clave de prueba de Cloudflare configurada: no se valida contra el servicio real."
-        : "[TURNSTILE] TURNSTILE_SECRET_KEY no definida: se usa la versión gratuita de pruebas (siempre válida)."
-    );
+  if (process.env.TURNSTILE_DISABLED === "true" || process.env.NEXT_PUBLIC_DISABLE_TURNSTILE === "true") {
+    return { valido: true };
+  }
+
+  if (secretKey.startsWith("1x") || secretKey.startsWith("3x")) {
     return { valido: true };
   }
 
@@ -59,6 +52,7 @@ export async function verificarTurnstile(
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: formData.toString(),
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!res.ok) {
