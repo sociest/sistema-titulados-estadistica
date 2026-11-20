@@ -1,0 +1,90 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790780514514,
+      "tag": "0000_init_esquema_completo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791168892892,
+      "tag": "0001_chief_captain_midlands",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791169030509,
+      "tag": "0002_large_radioactive_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791169316023,
+      "tag": "0003_marvelous_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791779925394,
+      "tag": "0004_nosy_tenebrous",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791805594144,
+      "tag": "0005_iso_27001_2022_27701_2025",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792671264386,
+      "tag": "0006_credenciales_separadas_titulados",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792671264387,
+      "tag": "0007_cambio_obligatorio_correo",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792671264388,
+      "tag": "0008_add_imagen_url_personas",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792671264389,
+      "tag": "0009_auditoria_por_tabla",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792671264390,
+      "tag": "0010_audit_log_sin_fk_usuario",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792671264391,
+      "tag": "0011_personas_indices",
+      "breakpoints": true
+    }
+  ]
+}
