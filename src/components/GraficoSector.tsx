@@ -99,6 +99,7 @@ function Graficar({
         innerRadius={innerRadius}
         outerRadius={outerRadius}
         paddingAngle={paddingAngle}
+        isAnimationActive={false}
         label={etiquetas ? (p: PieLabelRenderProps) => EtiquetaSector(p, textoEtiqueta) : undefined}
         labelLine={false}
         onMouseEnter={interactivo ? (_: unknown, i: number) => setSectorHover(i) : undefined}
@@ -308,11 +309,18 @@ export default function GraficoSector({
         </ul>
       )}
 
-      {/* El envoltorio lleva solo-impresion y el centrado va dentro: la regla de impresión
-          fuerza display:block, que si noGANaría al flex del contenedor. */}
       <div className="solo-impresion">
         <div className="w-full flex items-center justify-center">
-          <Graficar {...principal} tool={tool} fijo={PAPEL} interactivo={false} sectorHover={null} />
+          <Graficar
+            {...principal}
+            textoEtiqueta="#334155"
+            etiquetas={true}
+            margen={{ top: 8, right: 96, bottom: 8, left: 96 }}
+            tool={tool}
+            fijo={PAPEL}
+            interactivo={false}
+            sectorHover={null}
+          />
         </div>
       </div>
 

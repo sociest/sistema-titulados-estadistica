@@ -195,7 +195,7 @@ export default function CambiarCorreoPage() {
           </div>
         )}
 
-        <form onSubmit={handleCambiar} className="space-y-4">
+        <form onSubmit={handleCambiar} autoComplete="off" data-form-type="other" className="space-y-4">
           <div>
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
               Cédula de Identidad
@@ -205,6 +205,7 @@ export default function CambiarCorreoPage() {
               onChange={(e) => setCi(e.target.value)}
               readOnly={Boolean(ci && user?.ci)}
               placeholder="Su CI"
+              autoComplete="off"
               required
               className="mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             />
@@ -219,7 +220,10 @@ export default function CambiarCorreoPage() {
               value={correo}
               onChange={(e) => setCorreo(e.target.value)}
               placeholder="correo@ejemplo.com"
-              autoComplete="email"
+              autoComplete="off"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
               required
               className="mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
@@ -231,13 +235,22 @@ export default function CambiarCorreoPage() {
             </label>
             <div className="relative mt-1">
               <input
-                type={mostrarPasswordActual ? "text" : "password"}
+                type="text"
+                name="clave_actual_acceso"
                 value={passwordActual}
                 onChange={(e) => setPasswordActual(e.target.value)}
                 placeholder="Su contraseña actual"
-                autoComplete="current-password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
                 required
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                style={!mostrarPasswordActual ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
+                className={`w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600${!mostrarPasswordActual ? " input-secret-masked" : ""}`}
               />
               <button
                 type="button"
@@ -257,14 +270,23 @@ export default function CambiarCorreoPage() {
             </label>
             <div className="relative mt-1">
               <input
-                type={mostrarPassword ? "text" : "password"}
+                type="text"
+                name="nueva_clave_acceso"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Mínimo 8 caracteres (letras y números, distinta a su CI)"
-                autoComplete="new-password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
                 required
                 minLength={8}
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                style={!mostrarPassword ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
+                className={`w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600${!mostrarPassword ? " input-secret-masked" : ""}`}
               />
               <button
                 type="button"
@@ -284,14 +306,23 @@ export default function CambiarCorreoPage() {
             </label>
             <div className="relative mt-1">
               <input
-                type={mostrarConfirmPassword ? "text" : "password"}
+                type="text"
+                name="confirmar_clave_acceso"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Repita la contraseña"
-                autoComplete="new-password"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
                 required
                 minLength={8}
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                style={!mostrarConfirmPassword ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
+                className={`w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600${!mostrarConfirmPassword ? " input-secret-masked" : ""}`}
               />
               <button
                 type="button"

@@ -467,7 +467,7 @@ export default function AdminDashboardPage() {
           <select
             value={sector}
             onChange={(e) => setSector(e.target.value)}
-            className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 hover:border-slate-400 dark:hover:border-slate-500 transition"
+            className="no-print text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 hover:border-slate-400 dark:hover:border-slate-500 transition"
           >
             <option value="TODOS">Todos los sectores laborales</option>
             <option value="PUBLICO">Público</option>
@@ -481,7 +481,7 @@ export default function AdminDashboardPage() {
             <select
               value={modalidad}
               onChange={(e) => setModalidad(e.target.value)}
-              className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 hover:border-slate-400 dark:hover:border-slate-500 transition"
+              className="no-print text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 hover:border-slate-400 dark:hover:border-slate-500 transition"
             >
               <option value="TODAS">Todas las modalidades</option>
               <option value="Tesis">Tesis</option>
@@ -497,14 +497,14 @@ export default function AdminDashboardPage() {
             placeholder="Año Min"
             value={anioMin}
             onChange={(e) => setAnioMin(e.target.value)}
-            className="w-20 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="no-print w-20 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
           />
           <input
             type="number"
             placeholder="Año Max"
             value={anioMax}
             onChange={(e) => setAnioMax(e.target.value)}
-            className="w-20 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="no-print w-20 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
           />
 
           <button
@@ -697,7 +697,7 @@ export default function AdminDashboardPage() {
               Distribución cronológica de graduados
             </p>
           </div>
-          <div className="h-64 w-full">
+          <div className="solo-pantalla h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={data?.seriesPorAnio || []}
@@ -709,12 +709,32 @@ export default function AdminDashboardPage() {
                 <Tooltip {...estilosTooltip(oscuro)} />
                 <Legend wrapperStyle={{ color: ejes.textoEje }} />
                 {vista === "TITULADOS" ? (
-                  <Bar dataKey="titulados" name="Titulados" fill={oscuro ? "#3b82f6" : "#1e3a8a"} radius={[4, 4, 0, 0]} />
+                  <Bar isAnimationActive={false} dataKey="titulados" name="Titulados" fill={oscuro ? "#3b82f6" : "#1e3a8a"} radius={[4, 4, 0, 0]} />
                 ) : (
-                  <Bar dataKey="egresados" name="Egresados" fill={oscuro ? "#f59e0b" : "#d97706"} radius={[4, 4, 0, 0]} />
+                  <Bar isAnimationActive={false} dataKey="egresados" name="Egresados" fill={oscuro ? "#f59e0b" : "#d97706"} radius={[4, 4, 0, 0]} />
                 )}
               </BarChart>
             </ResponsiveContainer>
+          </div>
+          <div className="solo-impresion">
+            <div className="w-full flex items-center justify-center">
+              <BarChart
+                width={600}
+                height={230}
+                data={data?.seriesPorAnio || []}
+                margin={{ top: 10, right: 16, left: -10, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" strokeOpacity={0.5} />
+                <XAxis dataKey="anio" stroke="#334155" tick={{ fill: "#334155", fontSize: 11 }} />
+                <YAxis stroke="#334155" tick={{ fill: "#334155", fontSize: 11 }} allowDecimals={false} />
+                <Legend wrapperStyle={{ color: "#334155", fontSize: 11 }} />
+                {vista === "TITULADOS" ? (
+                  <Bar isAnimationActive={false} dataKey="titulados" name="Titulados" fill="#1e3a8a" radius={[4, 4, 0, 0]} />
+                ) : (
+                  <Bar isAnimationActive={false} dataKey="egresados" name="Egresados" fill="#d97706" radius={[4, 4, 0, 0]} />
+                )}
+              </BarChart>
+            </div>
           </div>
         </div>
 

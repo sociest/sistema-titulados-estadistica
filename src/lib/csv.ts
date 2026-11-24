@@ -9,6 +9,8 @@
  * de los campos, y BOM UTF-8 inicial.
  */
 export function leerCsv(contenido: string): Record<string, string>[] {
+  const primeraLinea = contenido.split(/\r?\n/)[0] ?? "";
+  const sep = primeraLinea.split(";").length > primeraLinea.split(",").length ? ";" : ",";
   const filas: string[][] = [];
   let campo = "";
   let fila: string[] = [];
@@ -29,7 +31,7 @@ export function leerCsv(contenido: string): Record<string, string>[] {
     }
 
     if (c === '"') enComillas = true;
-    else if (c === ",") {
+    else if (c === sep) {
       fila.push(campo);
       campo = "";
     } else if (c === "\n") {

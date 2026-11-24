@@ -54,6 +54,9 @@ const cabecerasSeguridad = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: {
+    serverComponentsExternalPackages: ["pdfkit"],
+  },
   async headers() {
     return [
       {

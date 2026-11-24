@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas, auditLog } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
+import { exigirAdminOKardex, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { revocarSesionesDePersona } from "@/lib/sesiones";
 import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
@@ -38,24 +38,25 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!sesion) {
     return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   }
-  if (sesion.rol !== "admin" && sesion.rol !== "TITULADO" && sesion.rol !== "EGRESADO") {
-    return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
+  if (sesion.rol !== "admin" && sesion.rol !== "KARDEX" && sesion.rol !== "TITULADO" && sesion.rol !== "EGRESADO") {
+    return NextResponse.json({ error: "Requiere permisos de administrador o Kardex" }, { status: 403 });
   }
 
+  const esAdminOKardex = sesion.rol === "admin" || sesion.rol === "KARDEX";
   const n = Number(params.id);
   const filas = await db.select().from(personas).where(eq(personas.id, n)).limit(1);
   if (!filas.length) {
-    return sesion.rol === "admin"
+    return esAdminOKardex
       ? NextResponse.json({ error: "No encontrado" }, { status: 404 })
       : NextResponse.json({ error: "No tiene permisos sobre este registro" }, { status: 403 });
   }
 
   const norm = (s?: string | null) => (s ?? "").trim().toUpperCase();
-  const esSuyo = sesion.rol !== "admin" && norm(sesion.ci) !== "" && norm(sesion.ci) === norm(filas[0]!.cedulaIdentidad);
-  if (sesion.rol !== "admin" && !esSuyo) {
+  const esSuyo = !esAdminOKardex && norm(sesion.ci) !== "" && norm(sesion.ci) === norm(filas[0]!.cedulaIdentidad);
+  if (!esAdminOKardex && !esSuyo) {
     return NextResponse.json({ error: "No tiene permisos sobre este registro" }, { status: 403 });
   }
-  if (!filas[0]!.activo && sesion.rol !== "admin") {
+  if (!filas[0]!.activo && !esAdminOKardex) {
     return NextResponse.json(
       { error: "Su registro se encuentra dado de baja. Contacte a la Carrera.", activo: false },
       { status: 403 }
@@ -114,7 +115,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
  * ?definitivo=1 sigue siendo el borrado físico, reservado a casos exceptional.
  */
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const denegado = await exigirAdmin(req);
+  const denegado = await exigirAdminOKardex(req);
   if (denegado) return denegado;
 
   const denegadoCsrf = await verificarCsrf(req);
@@ -207,7 +208,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     // `eliminadoPor` guarda el id del administrador solo si el id es realmente el de un
     // usuario: `usuarios` y `personas` son tablas distintas con ids que se solapan, y
     // escribir un id de persona en la FK de usuarios rompería la baja.
-    const idAdmin = sesion?.rol === "admin" ? sesion.sub : null;
+    const idAdmin = sesion?.rol === "admin" || sesion?.rol === "KARDEX" ? sesion.sub : null;
     const [actualizada] = await db
       .update(personas)
       .set({

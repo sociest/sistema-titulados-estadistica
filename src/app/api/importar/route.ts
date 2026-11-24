@@ -2,31 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
 import { sql, eq } from "drizzle-orm";
-import { exigirAdmin, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { exigirAdminOKardex, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { personaImportacionSchema, primerErrorZod } from "@/lib/validaciones";
 import { leerCsv } from "@/lib/csv";
 import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
 
 export const dynamic = "force-dynamic";
-
-/**
- * POST /api/importar → Importación masiva de registros desde archivo Excel o CSV.
- *
- * Restricciones de `important.md` §2: los archivos se procesan EN MEMORIA. Nunca se escribe
- * nada en disco, para que funcione igual en un servidor normal o en un contenedor efímero.
- *
- * Acepta `multipart/form-data` con el campo `archivo`, en formato:
- *   .csv   → texto UTF-8
- *   .xlsx  → se lee con la librería `xlsx` ya instalada
- *
- * Parámetros opcionales:
- *   - sobrescribir: "true" | "false" (default: false) - Si true, actualiza registros existentes por CI
- *
- * Cada fila se valida con `personaImportacionSchema`: exige solo los campos obligatorios de
- * la plantilla y valida el formato de los que vengan con dato. Se devuelve un reporte con
- * las filas insertadas, actualizadas y rechazadas, con el motivo de cada rechazo.
- */
 
 const MAPA: Record<string, string> = {
   tipo: "tipo",
@@ -56,7 +38,28 @@ const MAPA: Record<string, string> = {
   observaciones: "observaciones",
 };
 
-/** Acepta tanto "SI"/"sí"/"1"/"true" como el booleano de Excel. */
+const CAMPOS_UPPER = new Set([
+  "tipo",
+  "genero",
+  "planeaTitularse",
+  "inicioProcesoTitulacion",
+  "motivoNoTitulacion",
+  "estadoLaboral",
+  "sectorTrabajo",
+]);
+
+const MODALIDADES_CANONICAS: Record<string, string> = {
+  tesis: "Tesis",
+  "proyecto de grado": "Proyecto de grado",
+  "proyecto_de_grado": "Proyecto de grado",
+  "examen de grado": "Examen de grado",
+  "examen_de_grado": "Examen de grado",
+  "trabajo dirigido": "Trabajo dirigido",
+  "trabajo_dirigido": "Trabajo dirigido",
+  otro: "Otro",
+  excelencia: "Otro",
+};
+
 function aBooleano(v: unknown): boolean {
   if (typeof v === "boolean") return v;
   const s = String(v ?? "").trim().toLowerCase();
@@ -64,7 +67,7 @@ function aBooleano(v: unknown): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  const denegado = await exigirAdmin(req);
+  const denegado = await exigirAdminOKardex(req);
   if (denegado) return denegado;
 
   const denegadoCsrf = await verificarCsrf(req);
@@ -135,17 +138,31 @@ export async function POST(req: NextRequest) {
       const crudo = crudos[i]!;
       const filaNum = i + 2; // +1 por el encabezado, +1 porque humans cuentan desde 1
 
-      // Traducir nombres de columna del CSV a los del esquema.
       const normalizado: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(crudo)) {
         const destino = MAPA[k.trim().toLowerCase()];
-        if (destino && !(typeof v === "string" && v.trim() === "")) normalizado[destino] = v;
-      }
-      if ("trabajaEnEstadistica" in normalizado) {
-        normalizado.trabajaEnEstadistica = aBooleano(normalizado.trabajaEnEstadistica);
+        if (!destino || v === null || v === undefined) continue;
+        const strVal = String(v).trim();
+        if (strVal === "") continue;
+
+        if (CAMPOS_UPPER.has(destino)) {
+          normalizado[destino] = strVal.toUpperCase();
+        } else if (destino === "modalidadTitulacion") {
+          normalizado[destino] = MODALIDADES_CANONICAS[strVal.toLowerCase()] ?? strVal;
+        } else if (
+          destino === "anioEgreso" ||
+          destino === "anioTitulacion" ||
+          destino === "tiempoEgresoTitulacionMeses" ||
+          destino === "tiempoInsercionLaboralMeses"
+        ) {
+          normalizado[destino] = v;
+        } else if (destino === "trabajaEnEstadistica") {
+          normalizado[destino] = aBooleano(v);
+        } else {
+          normalizado[destino] = strVal;
+        }
       }
 
-      // Convertir cédula a string si viene como número (Excel/CSV pueden traerlo como number)
       const ci = String(normalizado.cedulaIdentidad ?? "").trim().toUpperCase();
       if (!ci) {
         rechazadas.push({ fila: filaNum, ci: "", motivo: "Falta la cédula de identidad" });
@@ -157,7 +174,6 @@ export async function POST(req: NextRequest) {
       }
       vistas.add(ci);
 
-      // Actualizar el objeto normalizado con la cédula como string para la validación
       normalizado.cedulaIdentidad = ci;
 
       const parseo = personaImportacionSchema.safeParse(normalizado);
@@ -168,7 +184,9 @@ export async function POST(req: NextRequest) {
 
       const d = parseo.data;
       const tiempoEgrTit =
-        d.anioEgreso && d.anioTitulacion ? (d.anioTitulacion - d.anioEgreso) * 12 : null;
+        d.anioEgreso && d.anioTitulacion && d.anioTitulacion >= d.anioEgreso
+          ? (d.anioTitulacion - d.anioEgreso) * 12
+          : (d.tiempoEgresoTitulacionMeses ?? null);
 
       const datosCompletos = { ...d, cedulaIdentidad: ci, tiempoEgresoTitulacionMeses: tiempoEgrTit };
 

@@ -158,29 +158,48 @@ body {
 }
 
 @media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  html.dark,
   body {
     background: #fff !important;
-    color: #000 !important;
+    color: #0f172a !important;
   }
+
   header, footer, button, input, select {
     box-shadow: none !important;
   }
 
-  /* Todo lo marcado con .no-print desaparece al imprimir: navbar, barra de
-     módulos, switch de vista, modal de exportación y el pie de página. El
-     informe sale limpio, desde la carátula hasta la tabla de cohortes. */
-  .no-print {
+  .no-print,
+  [data-navbar],
+  [data-nav-espaciador],
+  footer {
     display: none !important;
   }
 
-  /* Bloques que solo existen en papel (carátula institucional). */
   .solo-impresion {
     display: block !important;
   }
 
-  /* Los paneles con desplazamiento (distribución geográfica, tabla de cohortes) conservan en
-     papel su barra y su alto máximo: se ve la barra, se corta el contenido y además queda un
-     hueco de espacio irreproducible en la hoja. Al imprimir, el flujo es normal. */
+  html.dark .dark\:bg-slate-900,
+  html.dark .dark\:bg-slate-800,
+  html.dark .dark\:bg-slate-800\/60 {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  html.dark .dark\:text-white,
+  html.dark .dark\:text-slate-100,
+  html.dark .dark\:text-slate-200,
+  html.dark .dark\:text-slate-300,
+  html.dark .dark\:text-slate-400 {
+    color: #0f172a !important;
+  }
+
   .overflow-y-auto,
   .overflow-x-auto,
   .overflow-auto {
@@ -188,35 +207,15 @@ body {
     max-height: none !important;
   }
 
-  /* El desglose del sector laboral son dos gráficos con su listado: partirlo entre dos hojas
-     deja la mitad de las categorías sin contexto. */
   .sector-impresion {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  /* El Navbar va en position:fixed, y el motor de impresión repite los elementos fijos en
-     todas las hojas: el contenido le pasa por debajo y acaba tapado (la cabecera de la tabla
-     de cohortes quedaba debajo del logo). En papel pasa a estático, aparece solo en la
-     primera hoja y nada se solapa. */
-  [data-navbar] {
-    position: static !important;
-  }
-
-  [data-nav-espaciador] {
-    display: none !important;
-  }
-
-  /* La versión de pantalla de los gráficos. En papel se dibujan aparte, con medidas fijas:
-     ResponsiveContainer mide el contenedor con un ResizeObserver y al entrar en media print
-     el motor llega a imprimir antes de que el SVG esté listo (pasaba con el segundo pie). */
   .solo-pantalla {
     display: none !important;
   }
 
-  /* Encabezados que se repiten al partir un bloque entre hojas. `table-header-group` es
-     exactamente lo que hace un <thead>, y el motor de impresión lo vuelve a dibujar en cada
-     página: así, al continuar los datos, vuelve a verse de qué sección son. */
   .tabla-impresion {
     display: table;
     width: 100%;
@@ -228,16 +227,10 @@ body {
     display: table-row-group;
   }
 
-  /* El papel es blanco y no admite hover, así que el texto de los gráficos (ejes, ticks,
-     etiquetas de las tortas y leyendas) se fuerza a oscuro. Sin esto, quien tenga el tema
-     oscuro activo en pantalla imprimiría los rótulos en gris claro sobre hoja blanca y
-     no se leerían. */
   .recharts-wrapper text {
     fill: #334155 !important;
   }
 
-  /* Los <select> y <input> de los filtros no imprimen bien: se reemplaza por
-     su texto legible para que quede constancia de qué se filtró. */
   .filtro-impresion {
     display: inline-block !important;
     font-size: 11pt;
@@ -250,12 +243,18 @@ body {
   }
 
   @page {
-    margin: 14mm;
+    size: A4 portrait;
+    margin: 12mm;
   }
 }
 
 .solo-impresion {
   display: none;
+}
+
+.input-secret-masked {
+  -webkit-text-security: disc;
+  text-security: disc;
 }
 
 /* Tema claro suave: las tarjetas siguen casi blancas (no queman la vista) y el fondo

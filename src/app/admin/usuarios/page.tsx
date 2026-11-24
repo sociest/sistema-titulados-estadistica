@@ -300,7 +300,20 @@ export default function AdminUsuariosPage() {
 
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                 Contraseña {modal === "nuevo" ? "*" : "(dejar vacío para no cambiarla)"}
-                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={inp} autoComplete="new-password" />
+                <input
+                  type="text"
+                  name="clave_usuario_admin"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className={`${inp} input-secret-masked`}
+                  style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                />
                 {err("password") && <span className={errMsg}>{err("password")}</span>}
                 {modal === "nuevo" && <span className="block mt-1 text-[10px] text-slate-400">Mínimo 8 caracteres.</span>}
               </label>
@@ -337,11 +350,37 @@ export default function AdminUsuariosPage() {
               )}
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                 Su contraseña actual (confirmación) *
-                <input type="password" value={passwordActual} onChange={(e) => setPasswordActual(e.target.value)} className={inp} autoComplete="current-password" />
+                <input
+                  type="text"
+                  name="confirmacion_admin_actual"
+                  value={passwordActual}
+                  onChange={(e) => setPasswordActual(e.target.value)}
+                  className={`${inp} input-secret-masked`}
+                  style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                />
               </label>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                 Nueva contraseña *
-                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={inp} autoComplete="new-password" />
+                <input
+                  type="text"
+                  name="nueva_clave_usuario"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className={`${inp} input-secret-masked`}
+                  style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                />
                 <span className="block mt-1 text-[10px] text-slate-400">Mínimo 8 caracteres.</span>
               </label>
             </div>

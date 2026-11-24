@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { aFiltroEnum, aValorEnum } from "@/lib/filtros";
 import { personas } from "@/db/schema";
 import { and, count, desc, eq, ilike, ne, or, sql, type SQL } from "drizzle-orm";
-import { exigirAdmin, exigirAdminOContacto, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { exigirAdminOKardex, exigirAdminOContacto, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { registrarCambio } from "@/lib/auditoriaTablas";
 import { calcularCambios } from "@/lib/diff";
 import { personaAdminSchema, personaAutogestionSchema, primerErrorZod } from "@/lib/validaciones";
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       // mostrar un formulario vacío.
       if (!rows[0]!.activo) {
         const sesion = await leerSesionVigente(req);
-        if (sesion?.rol !== "admin") {
+        if (sesion?.rol !== "admin" && sesion?.rol !== "KARDEX") {
           return NextResponse.json(
             { error: "Su registro se encuentra dado de baja. Contacte a la Carrera.", activo: false },
             { status: 403 }
@@ -73,8 +73,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // ── Listado (solo admin) ──────────────────────────────────────────────────
-    const denegado = await exigirAdmin(req);
+    const denegado = await exigirAdminOKardex(req);
     if (denegado) return denegado;
 
     const conds: SQL[] = [];
@@ -181,7 +180,7 @@ export async function GET(req: NextRequest) {
  * "El sistema debe alertar si se intenta registrar una cédula que ya existe".
  */
 export async function POST(req: NextRequest) {
-  const denegado = await exigirAdmin(req);
+  const denegado = await exigirAdminOKardex(req);
   if (denegado) return denegado;
 
   const denegadoCsrf = await verificarCsrf(req);
@@ -244,7 +243,7 @@ export async function POST(req: NextRequest) {
       tabla: "audit_personas",
       accion: "crear",
       entidadId: creada!.id,
-      idUsuario: sesionAlta?.rol === "admin" ? sesionAlta.sub : null,
+      idUsuario: sesionAlta?.rol === "admin" || sesionAlta?.rol === "KARDEX" ? sesionAlta.sub : null,
       rol: sesionAlta?.rol ?? null,
       anterior: null,
       nuevo: creada,
@@ -258,12 +257,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * PATCH /api/personas?ci=...
- *
- * El admin puede editar TODO, incluidos los campos "K" de Kardex (inmutables para el
- * titular). El titulado/egresado solo puede editar los campos dinámicos de su perfil.
- */
 export async function PATCH(req: NextRequest) {
   const ci = new URL(req.url).searchParams.get("ci");
   if (!ci) return NextResponse.json({ error: "ci requerido" }, { status: 400 });
@@ -277,7 +270,7 @@ export async function PATCH(req: NextRequest) {
   if (denegado) return denegado;
 
   const sesion = await leerSesionVigente(req);
-  const esAdmin = sesion?.rol === "admin";
+  const esAdmin = sesion?.rol === "admin" || sesion?.rol === "KARDEX";
 
   try {
     let body: Record<string, unknown>;

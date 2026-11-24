@@ -30,32 +30,25 @@ type Rol = (typeof ROLES)[number];
 
 const esRol = (valor: string): valor is Rol => (ROLES as readonly string[]).includes(valor);
 
-/** Páginas: se redirige a /login porque el navegador sigue siendo una página. */
 const RUTAS_POR_ROL: Array<{ prefijo: string; roles: Rol[] }> = [
+  { prefijo: "/admin/personas", roles: ["admin", "KARDEX"] },
+  { prefijo: "/admin/importar", roles: ["admin", "KARDEX"] },
   { prefijo: "/admin", roles: ["admin"] },
   { prefijo: "/portal/titulado", roles: ["TITULADO", "admin"] },
   { prefijo: "/portal/egresado", roles: ["EGRESADO", "admin"] },
-  { prefijo: "/kardex", roles: ["KARDEX"] },
+  { prefijo: "/kardex", roles: ["KARDEX", "admin"] },
 ];
 
-/**
- * APIs que exigen sesión de administrador. Es una lista centralizada a propósito: si
- * alguien agrega una ruta nueva y olvida el guard, esta capa la detiene igual.
- *
- * Se acumulan en un Set para que `/api/usuarios` cubra a la vez `/api/usuarios` y
- * `/api/usuarios/12`, sin tener que escribir el comodín a mano.
- */
 const APIS_SOLO_ADMIN = [
-  "/api/personas",
   "/api/usuarios",
   "/api/exportar",
-  "/api/importar",
   "/api/auditoria",
   "/api/respaldar",
   "/api/registros",
   "/api/correo/probar",
 ];
 
+const APIS_ADMIN_O_KARDEX = ["/api/personas", "/api/importar", "/api/noticias/imagen"];
 const APIS_SOLO_KARDEX = ["/api/kardex"];
 const APIS_REQUIEREN_SESION = ["/api/carreras", "/api/solicitudes", "/api/correo/cambiar/saltar"];
 
@@ -107,24 +100,23 @@ export async function middleware(req: NextRequest) {
 
   const regla = RUTAS_POR_ROL.find((r) => ruta === r.prefijo || ruta.startsWith(`${r.prefijo}/`));
   const esEscrituraNoticias =
-    (ruta === "/api/noticias" || ruta.startsWith("/api/noticias/")) && req.method !== "GET";
+    ((ruta === "/api/noticias" || ruta.startsWith("/api/noticias/")) &&
+      !ruta.startsWith("/api/noticias/imagen") &&
+      req.method !== "GET");
   const soloAdmin =
     esEscrituraNoticias || APIS_SOLO_ADMIN.some((p) => ruta === p || ruta.startsWith(`${p}/`));
+  const adminOKardex = APIS_ADMIN_O_KARDEX.some((p) => ruta === p || ruta.startsWith(`${p}/`));
   const soloKardex = APIS_SOLO_KARDEX.some((p) => ruta === p || ruta.startsWith(`${p}/`));
   const requiereSesion = APIS_REQUIEREN_SESION.some((p) => ruta === p || ruta.startsWith(`${p}/`));
   const conSesion = APIS_CON_SESION.some((p) => ruta === p || ruta.startsWith(`${p}/`));
 
-  // `/api/noticias` se lee sin sesión (es contenido público), pero `/api/mis-datos`
-  // NO: son datos personales de un titular, y su lectura exige estar autenticado como
-  // esa persona. Sin esta separación, la rama de "lectura pública" de abajo dejaría
-  // pasar un GET a los datos de cualquier egresado sin cookie ninguna.
   const soloLecturaPublica = (p: string) => ruta === p || ruta.startsWith(`${p}/`);
   const lecturaPublica =
     soloLecturaPublica("/api/noticias") &&
     req.method === "GET" &&
     req.nextUrl.searchParams.get("admin") !== "1";
 
-  if (!regla && !soloAdmin && !soloKardex && !requiereSesion && (!conSesion || lecturaPublica)) return NextResponse.next();
+  if (!regla && !soloAdmin && !adminOKardex && !soloKardex && !requiereSesion && (!conSesion || lecturaPublica)) return NextResponse.next();
 
   const token = req.cookies.get(NOMBRE_COOKIE)?.value;
   const sesion = await leerSesionDeRequest(req);
@@ -165,8 +157,14 @@ export async function middleware(req: NextRequest) {
   // El titular accediendo a SU propia ficha no es "solo admin": el portal lo necesita.
   const esPropiaFicha = esApiPersonasDePropioTitular(ruta, req, sesion);
 
-  if (soloKardex && rol !== "KARDEX") {
+  if (soloKardex && rol !== "KARDEX" && rol !== "admin") {
     return NextResponse.json({ error: "Requiere permisos de Kardex" }, { status: 403 });
+  }
+
+  if (adminOKardex && rol !== "admin" && rol !== "KARDEX" && !esPropiaFicha) {
+    return esApi
+      ? NextResponse.json({ error: "Requiere permisos de administrador o Kardex" }, { status: 403 })
+      : redirigir(req, ruta);
   }
 
   if (soloAdmin && rol !== "admin" && !esPropiaFicha) {

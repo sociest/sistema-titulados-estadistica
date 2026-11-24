@@ -407,7 +407,8 @@ export default function AdminPersonasPage() {
   const resumen = datos?.resumen;
 
   if (authLoading) return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
-  if (!user || user.rol !== "admin") return null;
+  if (!user || (user.rol !== "admin" && user.rol !== "KARDEX")) return null;
+  const esKardex = user.rol === "KARDEX";
 
   return (
     <>
@@ -435,14 +436,39 @@ export default function AdminPersonasPage() {
       <LoadingOverlay visible={guardando} icon={<Loader2 className="w-7 h-7 animate-spin" />} title="Guardando" label="Registro" />
 
       <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* Encabezado */}
+        {esKardex && (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <Link
+              href="/kardex/solicitudes"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
+            >
+              <CheckCircle2 className="h-4 w-4 text-teal-700 dark:text-teal-400" />
+              Solicitudes de Titulación
+            </Link>
+            <Link
+              href="/admin/personas"
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition"
+            >
+              <Users className="h-4 w-4" />
+              Registrar Personas
+            </Link>
+            <Link
+              href="/admin/importar"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
+            >
+              <Upload className="h-4 w-4 text-teal-700 dark:text-teal-400" />
+              Importar Usuarios (Excel / CSV)
+            </Link>
+          </div>
+        )}
+
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <Link
-              href="/admin/dashboard"
+              href={esKardex ? "/kardex/solicitudes" : "/admin/dashboard"}
               className="inline-flex items-center gap-2 text-sm font-bold px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
             >
-              <ArrowLeft className="w-4 h-4" /> Dashboard
+              <ArrowLeft className="w-4 h-4" /> {esKardex ? "Portal Kardex" : "Dashboard"}
             </Link>
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">

@@ -33,15 +33,14 @@ export default function KpiNavigation() {
         <div className="flex items-center gap-3 mb-2">
           <span className="w-8 h-1 bg-teal-600 dark:bg-teal-300" />
           <p className="text-[13px] font-black tracking-[0.2em] text-teal-800 dark:text-teal-200 uppercase">
-            Indicadores · Seguimiento
+            Indicadores
           </p>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-[#17344f] dark:text-white">
-          Información estadística de <span className="text-[#d86524] dark:text-amber-300">graduados</span>
+          Información estadística de <span className="text-[#d86524] dark:text-amber-300">Titulados</span>
         </h2>
         <p className="text-sm text-slate-700 dark:text-slate-300 mt-2 max-w-2xl">
-          Consulte los indicadores de empleabilidad, tiempos de titulación e inserción laboral
-          para cada grupo.
+          Consulte los indicadores de empleabilidad, tiempos de titulación e inserción laboral.
         </p>
 
         <div className="mt-8 grid gap-4">
@@ -55,7 +54,7 @@ export default function KpiNavigation() {
               </div>
               <div>
                 <p className="text-base sm:text-lg font-black leading-tight">
-                  Ver info de los titulados
+                  Ver información de los titulados
                 </p>
                 <p className="text-xs font-bold tracking-widest text-white/70 mt-0.5">
                   INDICADORES DE TITULADOS

@@ -362,39 +362,53 @@ export function generarReportePdf(datos: DatosReporte): Promise<Buffer> {
       }
     }
 
-    // ── Pie de página ─────────────────────────────────────────────────────────
+    if ( doc.y > doc.page.height - 130 ) {
+      doc.addPage();
+    }
+
+    doc.moveDown(0.8);
+    doc.fillColor(AMBAR).fontSize(7).text(
+      "Documento generado automáticamente desde la base de datos del sistema. Los indicadores se calculan sobre los registros vigentes al momento de la emisión.",
+      M, doc.y, { width: ANCHO, align: "left" }
+    );
+
     const rango = doc.bufferedPageRange();
     const ultimaPagina = rango.start + rango.count - 1;
 
     for (let i = rango.start; i <= ultimaPagina; i++) {
       doc.switchToPage(i);
       const yPie = doc.page.height - 34;
-      doc.rect(0, yPie, doc.page.width, 34).fill("#f1f5f9");
-      doc.fillColor(GRIS).fontSize(7)
-         .text("Sistema de Seguimiento a Titulados y Egresados · Carrera de Estadística · UMSA", M, yPie + 8);
-      doc.text(`Página ${i + 1} de ${rango.count}`, M, yPie + 8, { width: ANCHO, align: "right" });
-      doc.text(`Generado el ${fecha}`, M, yPie + 18, { width: ANCHO, align: "right" });
 
-      // ── Barra de firma en la última página ─────────────────────────────────
       if (i === ultimaPagina && datos.firma) {
-        const yFirma = yPie - 70;
-        // Línea de firma
+        const yFirma = yPie - 64;
+        const xCentro = doc.page.width / 2;
         doc.strokeColor("#0f172a").lineWidth(1);
-        const xFirmaInicio = M;
-        const xFirmaFin = doc.page.width - M;
-        doc.moveTo(xFirmaInicio, yFirma).lineTo(xFirmaFin, yFirma).stroke();
-        // Texto debajo de la línea
+        doc.moveTo(xCentro - 110, yFirma).lineTo(xCentro + 110, yFirma).stroke();
         doc.fillColor("#0f172a").fontSize(9).font("Helvetica-Bold");
-        doc.text(datos.firma.cargo, xFirmaInicio, yFirma + 5, { width: ANCHO, align: "center" });
+        doc.text(datos.firma.cargo, M, yFirma + 6, { width: ANCHO, align: "center", lineBreak: false });
         doc.font("Helvetica").fontSize(9);
-        doc.text(datos.firma.nombre, xFirmaInicio, yFirma + 20, { width: ANCHO, align: "center" });
+        doc.text(datos.firma.nombre, M, yFirma + 20, { width: ANCHO, align: "center", lineBreak: false });
       }
-    }
 
-    doc.fillColor(AMBAR).fontSize(7).text(
-      "Documento generado automáticamente desde la base de datos del sistema. Los indicadores se calculan sobre los registros vigentes al momento de la emisión.",
-      M, doc.y + 8, { align: "left" }
-    );
+      doc.rect(0, yPie, doc.page.width, 34).fill("#f1f5f9");
+      doc.fillColor(GRIS).fontSize(7).font("Helvetica");
+      doc.text(
+        "Sistema de Seguimiento a Titulados y Egresados · Carrera de Estadística · UMSA",
+        M,
+        yPie + 8,
+        { lineBreak: false }
+      );
+      doc.text(`Página ${i + 1} de ${rango.count}`, M, yPie + 8, {
+        width: ANCHO,
+        align: "right",
+        lineBreak: false,
+      });
+      doc.text(`Generado el ${fecha}`, M, yPie + 18, {
+        width: ANCHO,
+        align: "right",
+        lineBreak: false,
+      });
+    }
 
     doc.end();
   });

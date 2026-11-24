@@ -42,6 +42,24 @@ export async function exigirAdmin(
   return null;
 }
 
+export async function exigirAdminOKardex(
+  req: Parameters<typeof leerSesionDeRequest>[0]
+): Promise<NextResponse | null> {
+  const sesion = await leerSesionVigente(req);
+  if (!sesion) {
+    return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
+  }
+  if (sesion.rol !== "admin" && sesion.rol !== "KARDEX") {
+    await registrarAccesoDenegado(
+      req,
+      `rol ${sesion.rol} intentó usar un recurso de administración/Kardex`,
+      null
+    );
+    return NextResponse.json({ error: "Requiere permisos de administrador o Kardex" }, { status: 403 });
+  }
+  return null;
+}
+
 export async function exigirKardex(
   req: Parameters<typeof leerSesionDeRequest>[0]
 ): Promise<NextResponse | null> {
@@ -49,9 +67,8 @@ export async function exigirKardex(
   if (!sesion) {
     return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   }
-  if (sesion.rol !== "KARDEX") {
-    const idUsuario = sesion.rol === "admin" ? sesion.sub : null;
-    await registrarAccesoDenegado(req, `rol ${sesion.rol} intentó usar el visor Kardex`, idUsuario);
+  if (sesion.rol !== "KARDEX" && sesion.rol !== "admin") {
+    await registrarAccesoDenegado(req, `rol ${sesion.rol} intentó usar el visor Kardex`, null);
     return NextResponse.json({ error: "Requiere permisos de Kardex" }, { status: 403 });
   }
   return null;
@@ -90,7 +107,7 @@ export async function exigirAdminOContacto(
   if (!sesion) {
     return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
   }
-  if (sesion.rol === "admin") return null;
+  if (sesion.rol === "admin" || sesion.rol === "KARDEX") return null;
 
   const normalizar = (s: string) => (s ?? "").trim().toUpperCase();
   if (normalizar(sesion.ci) && normalizar(sesion.ci) === normalizar(ciSolicitada)) return null;

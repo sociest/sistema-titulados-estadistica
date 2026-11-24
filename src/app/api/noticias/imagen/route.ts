@@ -2,18 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { exigirAdmin, verificarCsrf, errorInterno } from "@/lib/guards";
+import { exigirAdminOKardex, verificarCsrf, errorInterno } from "@/lib/guards";
 import { DIR_IMAGENES_NOTICIAS } from "@/lib/imagenesNoticias";
 
 export const dynamic = "force-dynamic";
 
-/** Tamaño máximo de imagen: 5 MB. */
 const MAX_BYTES = 5 * 1024 * 1024;
 
-/**
- * Detecta el tipo REAL por sus primeros bytes (magic numbers). La extensión o el
- * Content-Type que envía el navegador no se confían.
- */
 function detectarFormato(b: Uint8Array): "jpg" | "png" | "webp" | null {
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
@@ -22,9 +17,8 @@ function detectarFormato(b: Uint8Array): "jpg" | "png" | "webp" | null {
   return null;
 }
 
-/** POST /api/noticias/imagen → sube una imagen (SOLO ADMIN). Devuelve la URL interna. */
 export async function POST(req: NextRequest) {
-  const denegado = await exigirAdmin(req);
+  const denegado = await exigirAdminOKardex(req);
   if (denegado) return denegado;
   const denegadoCsrf = await verificarCsrf(req);
   if (denegadoCsrf) return denegadoCsrf;

@@ -130,7 +130,7 @@ function RecuperarFormulario() {
             </a>
           </div>
         ) : paso === "verificacion" ? (
-          <form onSubmit={restablecerPassword} className="space-y-4">
+          <form onSubmit={restablecerPassword} autoComplete="off" data-form-type="other" className="space-y-4">
             {mensaje && (
               <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900 dark:bg-blue-950/60 dark:text-blue-200">
                 {mensaje}
@@ -146,6 +146,7 @@ function RecuperarFormulario() {
                   pattern="[0-9]{6}"
                   maxLength={6}
                   required
+                  autoComplete="off"
                   placeholder="000000"
                   value={codigo}
                   onChange={(e) => setCodigo(e.target.value.replace(/[^0-9]/g, ""))}
@@ -160,14 +161,23 @@ function RecuperarFormulario() {
               </label>
               <div className="relative mt-1">
                 <input
-                  type={mostrarPassword ? "text" : "password"}
-                  autoComplete="new-password"
+                  type="text"
+                  name="nueva_clave_acceso"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="none"
                   minLength={8}
                   maxLength={200}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white pl-3 pr-10 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  style={!mostrarPassword ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
+                  className={`w-full rounded-xl border border-slate-300 bg-white pl-3 pr-10 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100${!mostrarPassword ? " input-secret-masked" : ""}`}
                 />
                 <button
                   type="button"
@@ -187,14 +197,23 @@ function RecuperarFormulario() {
               </label>
               <div className="relative mt-1">
                 <input
-                  type={mostrarConfirmacion ? "text" : "password"}
-                  autoComplete="new-password"
+                  type="text"
+                  name="confirmar_clave_acceso"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="none"
                   minLength={8}
                   maxLength={200}
                   required
                   value={confirmacion}
                   onChange={(e) => setConfirmacion(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white pl-3 pr-10 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  style={!mostrarConfirmacion ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
+                  className={`w-full rounded-xl border border-slate-300 bg-white pl-3 pr-10 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100${!mostrarConfirmacion ? " input-secret-masked" : ""}`}
                 />
                 <button
                   type="button"

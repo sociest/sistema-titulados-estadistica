@@ -3,18 +3,9 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, FileSpreadsheet, Download,
+  ArrowLeft, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, FileSpreadsheet, Download, Users,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-
-/**
- * Importación masiva desde Excel o CSV (PDF 4.2).
- *
- * El archivo se procesa EN MEMORIA en el servidor (`important.md` §2 prohíbe escribir en
- * disco, para que funcione igual en un servidor común o en un contenedor). Cada fila se
- * valida con el mismo esquema que el alta manual, y se devuelve el detalle de las
- * filas rechazadas con el motivo.
- */
 
 interface Resultado {
   archivo: string;
@@ -26,9 +17,95 @@ interface Resultado {
   detalleTruncado: boolean;
 }
 
-const PLANTILLA = `tipo,nombres_apellidos,cedula_identidad,genero,semestre_ingreso,semestre_egreso,anio_egreso,anio_titulacion,modalidad_titulacion,area_especializacion,planea_titularse,inicio_proceso_titulacion,motivo_no_titulacion,correo_electronico,telefono,redes_sociales,ciudad_region_trabajo,estado_laboral,sector_trabajo,sector_trabajo_otro,ocupacion_cargo,trabaja_en_estadistica,tiempo_egreso_titulacion_meses,tiempo_insercion_laboral_meses,observaciones
-TITULADO,"Ana María Ñuñez Rojas",1234567,FEMENINO,I/2016,II/2020,2020,2021,Tesis,Bioestadística,,,,ana@example.com,71234567,linkedin.com/in/ana,La Paz Bolivia,EMPLEADO,PUBLICO,,Analista de Datos,SI,12,3,
-EGRESADO,"Luis Carlos Pérez Soto",7654321,MASCULINO,II/2018,I/2023,2023,,,,SI,NO,LABORAL,luis@example.com,70123456,,Santa Cruz Bolivia,EMPLEADO,OTRO,Gobierno municipal,Técnico Estadístico,SI,,4,`;
+const COLUMNAS_PLANTILLA = [
+  "tipo",
+  "nombres_apellidos",
+  "cedula_identidad",
+  "genero",
+  "semestre_ingreso",
+  "semestre_egreso",
+  "anio_egreso",
+  "anio_titulacion",
+  "modalidad_titulacion",
+  "area_especializacion",
+  "planea_titularse",
+  "inicio_proceso_titulacion",
+  "motivo_no_titulacion",
+  "correo_electronico",
+  "telefono",
+  "redes_sociales",
+  "ciudad_region_trabajo",
+  "estado_laboral",
+  "sector_trabajo",
+  "sector_trabajo_otro",
+  "ocupacion_cargo",
+  "trabaja_en_estadistica",
+  "tiempo_egreso_titulacion_meses",
+  "tiempo_insercion_laboral_meses",
+  "observaciones",
+];
+
+const FILAS_EJEMPLO = [
+  [
+    "TITULADO",
+    "BENSON FLORES MENDEZ",
+    "99999901",
+    "MASCULINO",
+    "I/2016",
+    "II/2020",
+    2020,
+    2021,
+    "Tesis",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ],
+  [
+    "EGRESADO",
+    "FLOR LOPEZ HURTADO",
+    "99999902",
+    "FEMENINO",
+    "II/2018",
+    "I/2023",
+    2023,
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ],
+];
+
+const PLANTILLA = [
+  COLUMNAS_PLANTILLA.join(","),
+  ...FILAS_EJEMPLO.map((fila) => fila.map((v) => String(v ?? "")).join(",")),
+].join("\n");
 
 export default function AdminImportarPage() {
   const { user, loading: authLoading } = useAuth();
@@ -74,11 +151,19 @@ export default function AdminImportarPage() {
     URL.revokeObjectURL(url);
   };
 
+  const descargarPlantillaExcel = async () => {
+    const XLSX = await import("xlsx");
+    const hoja = XLSX.utils.aoa_to_sheet([COLUMNAS_PLANTILLA, ...FILAS_EJEMPLO]);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Sheet1");
+    XLSX.writeFile(libro, "plantilla_importacion.xlsx");
+  };
+
   const REGLAS_IMPORTACION = (
     <>
       <li>La <b>cédula de identidad</b> es única: si ya existe en el sistema, la fila se rechaza <b>a menos que marques "Sobrescribir"</b> (entonces actualiza el registro). Si se repite dentro del archivo, siempre se rechaza.</li>
       <li>Un <b>titulado</b> necesita año y modalidad de titulación.</li>
-      <li>Un <b>egresado</b> necesita &laquo;&iquest;Planea titularse?&raquo;. Si responde S&iacute;, necesita &laquo;&iquest;Inici&oacute; proceso?&raquo;; y si esa respuesta es No (o si respondi&oacute; No/No sabe), necesita el motivo.</li>
+      <li>Un <b>egresado</b> necesita semestre de ingreso, semestre de egreso y año de egreso.</li>
       <li>Si el sector es <b>OTRO</b>, hay que llenar la columna <code>sector_trabajo_otro</code>.</li>
       <li>Valores de enum en mayúsculas exactamente como en la plantilla: <code>TITULADO</code>, <code>EMPLEADO</code>, <code>PUBLICO</code>, <code>SI</code>/<code>NO</code>.</li>
       <li>El archivo se procesa en memoria y no queda almacenado en el servidor.</li>
@@ -88,13 +173,40 @@ export default function AdminImportarPage() {
   if (authLoading) {
     return <div className="p-8 text-sm text-slate-500 dark:text-slate-400">Verificando sesión…</div>;
   }
-  if (!user || user.rol !== "admin") return null;
+  if (!user || (user.rol !== "admin" && user.rol !== "KARDEX")) return null;
+  const esKardex = user.rol === "KARDEX";
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+      {esKardex && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <Link
+            href="/kardex/solicitudes"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
+          >
+            <CheckCircle2 className="h-4 w-4 text-teal-700 dark:text-teal-400" />
+            Solicitudes de Titulación
+          </Link>
+          <Link
+            href="/admin/personas"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
+          >
+            <Users className="h-4 w-4 text-blue-800 dark:text-blue-400" />
+            Registrar Personas
+          </Link>
+          <Link
+            href="/admin/importar"
+            className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition"
+          >
+            <Upload className="h-4 w-4" />
+            Importar Usuarios (Excel / CSV)
+          </Link>
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
-        <Link href="/admin/dashboard" className="inline-flex items-center gap-2 text-sm font-bold px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
-          <ArrowLeft className="w-4 h-4" /> Dashboard
+        <Link href={esKardex ? "/kardex/solicitudes" : "/admin/dashboard"} className="inline-flex items-center gap-2 text-sm font-bold px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+          <ArrowLeft className="w-4 h-4" /> {esKardex ? "Portal Kardex" : "Dashboard"}
         </Link>
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
@@ -132,10 +244,16 @@ export default function AdminImportarPage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button onClick={descargarPlantilla}
-            className="inline-flex items-center gap-2 text-xs font-bold px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
-            <Download className="w-4 h-4" /> Descargar plantilla CSV
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => void descargarPlantillaExcel()}
+              className="inline-flex items-center gap-2 text-xs font-bold px-3.5 py-2 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900 transition">
+              <FileSpreadsheet className="w-4 h-4" /> Descargar plantilla Excel (.xlsx)
+            </button>
+            <button onClick={descargarPlantilla}
+              className="inline-flex items-center gap-2 text-xs font-bold px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              <Download className="w-4 h-4" /> Descargar plantilla CSV (.csv)
+            </button>
+          </div>
 
           <div className="flex gap-2">
             {archivo && (

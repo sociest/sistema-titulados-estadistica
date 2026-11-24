@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useAuth } from "@/lib/auth";
-import { ShieldCheck, GraduationCap, BookOpen, Users, LogIn, Info, Eye, EyeOff } from "lucide-react";
+import { ShieldCheck, GraduationCap, BookOpen, Users, LogIn, Info, Eye, EyeOff, PlayCircle, X } from "lucide-react";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import TurnstileWidget from "@/components/TurnstileWidget";
 
@@ -11,6 +11,7 @@ function LoginForm() {
   const [ci, setCi] = useState("");
   const [password, setPassword] = useState("");
   const [mostrarPassword, setMostrarPassword] = useState(false);
+  const [mostrarAyuda, setMostrarAyuda] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,6 +34,15 @@ function LoginForm() {
   useEffect(() => {
     document.title = "Iniciar sesión | Seguimiento a Titulados";
   }, []);
+
+  useEffect(() => {
+    if (!mostrarAyuda) return;
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setMostrarAyuda(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mostrarAyuda]);
 
   // Si ya hay sesión válida, redirigir directamente a su panel.
   useEffect(() => {
@@ -152,16 +162,25 @@ function LoginForm() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form onSubmit={handleSubmit} autoComplete="off" data-form-type="other" className="mt-6 space-y-4">
             <div>
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                 CI / Correo / Usuario
               </label>
               <input
+                type="text"
+                name="identificador_acceso"
                 value={ci}
                 onChange={(e) => setCi(e.target.value)}
                 placeholder="Su cédula de identidad o correo"
-                autoComplete="username"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
                 className="mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 required
               />
@@ -173,11 +192,20 @@ function LoginForm() {
               </label>
               <div className="relative mt-1">
                 <input
-                  type={mostrarPassword ? "text" : "password"}
+                  type="text"
+                  name="clave_acceso"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  style={!mostrarPassword ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : undefined}
+                  className={`w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-3 pr-10 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600${!mostrarPassword ? " input-secret-masked" : ""}`}
                 />
                 <button
                   type="button"
@@ -217,14 +245,22 @@ function LoginForm() {
             </button>
           </form>
 
-          <p className="mt-4 text-center text-sm">
+          <div className="mt-4 flex flex-col items-center gap-2.5 text-sm">
             <a
               href="/recuperar"
               className="font-semibold text-blue-800 hover:underline dark:text-blue-300"
             >
               ¿Primera vez u olvidó su contraseña?
             </a>
-          </p>
+            <button
+              type="button"
+              onClick={() => setMostrarAyuda(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+            >
+              <PlayCircle className="w-4 h-4 text-[#0f3a6b] dark:text-blue-400" />
+              ¿Necesita ayuda para iniciar sesión?
+            </button>
+          </div>
 
           <p className="mt-6 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed border-t border-slate-200 dark:border-slate-800 pt-4">
             Si no puede acceder, comuníquese con la Secretaría de la Carrera de Estadística.
@@ -232,6 +268,51 @@ function LoginForm() {
           </p>
         </div>
       </div>
+
+      {mostrarAyuda && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="titulo-tutorial-login"
+          onClick={() => setMostrarAyuda(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+        >
+          <div
+            onClick={(ev) => ev.stopPropagation()}
+            className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <PlayCircle className="h-5 w-5 text-[#0f3a6b] dark:text-blue-400" />
+                <h2
+                  id="titulo-tutorial-login"
+                  className="text-sm font-bold text-slate-900 dark:text-white"
+                >
+                  Guía de inicio de sesión
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarAyuda(false)}
+                aria-label="Cerrar guía"
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="bg-black p-2 sm:p-3">
+              <video
+                src="/videos/tutorial-inicio-sesion.mp4"
+                controls
+                autoPlay
+                playsInline
+                preload="metadata"
+                className="aspect-video w-full rounded-lg bg-black"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
