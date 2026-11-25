@@ -41,14 +41,14 @@ const RUTAS_POR_ROL: Array<{ prefijo: string; roles: Rol[] }> = [
 
 const APIS_SOLO_ADMIN = [
   "/api/usuarios",
-  "/api/exportar",
+  "/api/exportar/pdf",
   "/api/auditoria",
   "/api/respaldar",
   "/api/registros",
   "/api/correo/probar",
 ];
 
-const APIS_ADMIN_O_KARDEX = ["/api/personas", "/api/importar", "/api/noticias/imagen"];
+const APIS_ADMIN_O_KARDEX = ["/api/personas", "/api/importar", "/api/exportar", "/api/noticias/imagen"];
 const APIS_SOLO_KARDEX = ["/api/kardex"];
 const APIS_REQUIEREN_SESION = ["/api/carreras", "/api/solicitudes", "/api/correo/cambiar/saltar"];
 

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowDownToLine, Check, FileCheck2, RefreshCw, Upload, Users, X } from "lucide-react";
+import { ArrowDownToLine, Check, RefreshCw, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import KardexNav from "@/components/KardexNav";
 
 interface Documento {
   id: number;
@@ -91,29 +91,7 @@ export default function SolicitudesKardexPage() {
   return (
     <div className="min-h-[calc(100vh-76px)] px-4 py-8 text-slate-900 dark:bg-transparent dark:text-slate-100 sm:px-6">
       <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <Link
-            href="/kardex/solicitudes"
-            className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition"
-          >
-            <FileCheck2 className="h-4 w-4" />
-            Solicitudes de Titulación
-          </Link>
-          <Link
-            href="/admin/personas"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
-          >
-            <Users className="h-4 w-4 text-blue-800 dark:text-blue-400" />
-            Registrar Personas
-          </Link>
-          <Link
-            href="/admin/importar"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
-          >
-            <Upload className="h-4 w-4 text-teal-700 dark:text-teal-400" />
-            Importar Usuarios (Excel / CSV)
-          </Link>
-        </div>
+        <KardexNav activa="solicitudes" />
 
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800">
           <div>

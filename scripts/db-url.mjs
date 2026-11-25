@@ -24,7 +24,7 @@ const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /** Lee `CLAVE=valor` de un archivo .env. Devuelve undefined si no está. */
 function leerEnv(ruta, clave) {
   if (!fs.existsSync(ruta)) return undefined;
-  for (const linea of fs.readFileSync(ruta, "utf8").split("\n")) {
+  for (const linea of fs.readFileSync(ruta, "utf8").split(/\r?\n/)) {
     const m = linea.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
     if (m && m[1] === clave) return m[2].trim().replace(/^["']|["']$/g, "");
   }

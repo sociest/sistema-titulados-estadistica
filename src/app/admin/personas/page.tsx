@@ -1,13 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Search, Plus, Pencil, Trash2, X, Loader2, CheckCircle2,
-  AlertTriangle, Users, GraduationCap, BookOpen, Upload, ShieldAlert, Filter, RefreshCw,
+  AlertTriangle, Users, GraduationCap, BookOpen, Upload, ShieldAlert, RefreshCw,
+  FileSpreadsheet, Download,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import LoadingOverlay from "@/components/LoadingOverlay";
+import ExportModal from "@/components/ExportModal";
+import KardexNav from "@/components/KardexNav";
+import { camposFaltantesPersona, MODALIDADES_OFICIALES } from "@/lib/normalizacion";
 
 /**
  * MÓDULO 1 — REGISTRO ADMINISTRATIVO DE TITULADOS Y EGRESADOS.
@@ -60,7 +64,7 @@ interface RespuestaListado {
   total: number;
   pagina: number;
   paginas: number;
-  resumen: { titulados: number; egresados: number; empleados: number };
+  resumen: { titulados: number; egresados: number; empleados: number; incompletos?: number };
 }
 
 type FormState = Record<string, string | boolean>;
@@ -98,7 +102,7 @@ const FORM_VACIO: FormState = {
   tipo: "TITULADO",
   nombresApellidos: "",
   cedulaIdentidad: "",
-  genero: "PREFIERO_NO_DECIR",
+  genero: "",
   semestreIngreso: "",
   semestreEgreso: "",
   anioEgreso: "",
@@ -112,7 +116,6 @@ const FORM_VACIO: FormState = {
   telefono: "",
   redesSociales: "",
   ciudadRegionTrabajo: "",
-  imagenUrl: "",
   estadoLaboral: "DESEMPLEADO",
   sectorTrabajo: "",
   sectorTrabajoOtro: "",
@@ -135,7 +138,6 @@ const ETIQUETA_SECTOR: Record<string, string> = {
 
 export default function AdminPersonasPage() {
   const { user, loading: authLoading } = useAuth();
-  const imgFileInputRef = useRef<HTMLInputElement>(null);
 
   const [datos, setDatos] = useState<RespuestaListado | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -146,20 +148,72 @@ export default function AdminPersonasPage() {
   const [tipo, setTipo] = useState("TODOS");
   const [sector, setSector] = useState("TODOS");
   const [estado, setEstado] = useState("TODOS");
+  const [soloIncompletos, setSoloIncompletos] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [perPage] = useState(25);
 
-  // Modal
+  // Modal y selección múltiple
   const [modal, setModal] = useState<"cerrado" | "nuevo" | "editar" | "borrar">("cerrado");
   const [editando, setEditando] = useState<Persona | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [subiendoImg, setSubiendoImg] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
+  const [seleccionados, setSeleccionados] = useState<number[]>([]);
+  const [modoBorrado, setModoBorrado] = useState<"uno" | "masivo">("uno");
+  const [motivoBaja, setMotivoBaja] = useState("");
   const [confirmarPersona, setConfirmarPersona] = useState<null | { cambios: { campo: string; antes: string; nuevo: string }[] }>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
+  const [avisoAlta, setAvisoAlta] = useState<string | null>(null);
   const [campoError, setCampoError] = useState<Record<string, string[]>>({});
   const [estadoCi, setEstadoCi] = useState<EstadoCi>({ estado: "idle", texto: "", color: "" });
+  const [exportModal, setExportModal] = useState<{
+    open: boolean;
+    formato: "excel" | "csv";
+    params: URLSearchParams;
+  }>({ open: false, formato: "excel", params: new URLSearchParams() });
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const dispararDescarga = (url: string) => {
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.rel = "noopener";
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+  };
+
+  const handleExport = (formato: "excel" | "csv") => {
+    const params = new URLSearchParams();
+    params.append(
+      "tipo",
+      tipo === "TITULADO" ? "TITULADOS" : tipo === "EGRESADO" ? "EGRESADOS" : "TODOS"
+    );
+    if (sector !== "TODOS") params.append("sector", sector);
+    setExportError(null);
+    setExportModal({ open: true, formato, params });
+  };
+
+  const confirmExport = async () => {
+    setExportError(null);
+    try {
+      const res = await fetch("/api/exportar/enlace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destino: exportModal.formato,
+          params: Object.fromEntries(exportModal.params.entries()),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setExportError(data.error ?? "No se pudo generar el enlace de descarga.");
+        return;
+      }
+      dispararDescarga(data.url);
+      setExportModal((m) => ({ ...m, open: false }));
+    } catch {
+      setExportError("Error de red al generar el enlace de descarga.");
+    }
+  };
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -170,6 +224,7 @@ export default function AdminPersonasPage() {
       if (tipo !== "TODOS") p.set("tipo", tipo);
       if (sector !== "TODOS") p.set("sector", sector);
       if (estado !== "TODOS") p.set("estado", estado);
+      if (soloIncompletos) p.set("soloIncompletos", "true");
       p.set("page", String(pagina));
       p.set("perPage", String(perPage));
 
@@ -178,12 +233,13 @@ export default function AdminPersonasPage() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Error al cargar");
       setDatos(j);
+      setSeleccionados([]);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setCargando(false);
     }
-  }, [q, tipo, sector, estado, pagina, perPage]);
+  }, [q, tipo, sector, estado, soloIncompletos, pagina, perPage]);
 
   // Búsqueda con rebote para no pegarle a la base en cada tecla.
   useEffect(() => {
@@ -198,34 +254,6 @@ export default function AdminPersonasPage() {
       const { [k]: _quitar, ...resto } = e;
       return resto;
     });
-  };
-
-  const subirImagenPersona = async (archivo: File) => {
-    if (!["image/jpeg", "image/png", "image/webp"].includes(archivo.type)) {
-      setMsg({ tipo: "error", texto: "Formato de imagen no permitido: use JPG, PNG o WEBP." });
-      return;
-    }
-    if (archivo.size > 5 * 1024 * 1024) {
-      setMsg({ tipo: "error", texto: "La imagen supera el máximo de 5 MB." });
-      return;
-    }
-    setSubiendoImg(true);
-    setMsg(null);
-    try {
-      const fd = new FormData();
-      fd.append("archivo", archivo);
-      const res = await fetch("/api/noticias/imagen", { method: "POST", body: fd });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "No se pudo subir la imagen");
-      set("imagenUrl", j.url);
-    } catch (e: unknown) {
-      setMsg({
-        tipo: "error",
-        texto: e instanceof Error ? e.message : "No se pudo subir la imagen",
-      });
-    } finally {
-      setSubiendoImg(false);
-    }
   };
 
   // ── Acciones de modal ──────────────────────────────────────────────────────
@@ -286,7 +314,7 @@ export default function AdminPersonasPage() {
       tipo: p.tipo,
       nombresApellidos: p.nombresApellidos,
       cedulaIdentidad: p.cedulaIdentidad,
-      genero: p.genero,
+      genero: p.genero === "PREFIERO_NO_DECIR" ? "" : p.genero,
       semestreIngreso: p.semestreIngreso ?? "",
       semestreEgreso: p.semestreEgreso ?? "",
       anioEgreso: p.anioEgreso != null ? String(p.anioEgreso) : "",
@@ -300,7 +328,6 @@ export default function AdminPersonasPage() {
       telefono: p.telefono ?? "",
       redesSociales: p.redesSociales ?? "",
       ciudadRegionTrabajo: p.ciudadRegionTrabajo ?? "",
-      imagenUrl: p.imagenUrl ?? "",
       estadoLaboral: p.estadoLaboral ?? "DESEMPLEADO",
       sectorTrabajo: p.sectorTrabajo ?? "",
       sectorTrabajoOtro: p.sectorTrabajoOtro ?? "",
@@ -346,7 +373,7 @@ export default function AdminPersonasPage() {
       const res = await fetch(url, {
         method: modal === "editar" ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, imagenUrl: form.imagenUrl || null }),
+        body: JSON.stringify(form),
       });
       const j = await res.json();
 
@@ -359,7 +386,13 @@ export default function AdminPersonasPage() {
         return;
       }
 
+      const eraNuevo = modal === "nuevo";
       setModal("cerrado");
+      if (eraNuevo) {
+        setAvisoAlta(
+          "Titulado/egresado añadido con éxito. Para su primer ingreso al portal debe utilizar su C.I."
+        );
+      }
       await cargar();
     } catch {
       setMsg({ tipo: "error", texto: "Error de red. Intente nuevamente." });
@@ -369,13 +402,45 @@ export default function AdminPersonasPage() {
   };
 
   const eliminar = async () => {
-    if (!editando) return;
+    const motivo = motivoBaja.trim();
+    if (motivo.length < 3) {
+      setMsg({ tipo: "error", texto: "Debe ingresar el motivo de la baja (mínimo 3 caracteres)." });
+      return;
+    }
+
     setGuardando(true);
+    setMsg(null);
     try {
-      const res = await fetch(`/api/personas/${editando.id}`, { method: "DELETE" });
+      if (modoBorrado === "masivo") {
+        if (seleccionados.length === 0) return;
+        const res = await fetch("/api/personas", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: seleccionados, motivo }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || "No se pudo dar de baja los registros");
+        setSeleccionados([]);
+        setModal("cerrado");
+        setAvisoAlta(
+          `Se dieron de baja ${j.eliminados ?? seleccionados.length} registro(s). Motivo: "${motivo}".`
+        );
+        await cargar();
+        return;
+      }
+
+      if (!editando) return;
+      const res = await fetch(
+        `/api/personas/${editando.id}?motivo=${encodeURIComponent(motivo)}`,
+        { method: "DELETE" }
+      );
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "No se pudo dar de baja");
+      setSeleccionados((prev) => prev.filter((id) => id !== editando.id));
       setModal("cerrado");
+      setAvisoAlta(
+        `Se dio de baja a ${editando.nombresApellidos} (${editando.cedulaIdentidad}). Motivo: "${motivo}".`
+      );
       await cargar();
     } catch (e: any) {
       setMsg({ tipo: "error", texto: e.message });
@@ -401,8 +466,28 @@ export default function AdminPersonasPage() {
   const ciOcupada = modal === "nuevo" && estadoCi.estado === "ocupada";
   const faltaCedula = txt(form, "cedulaIdentidad").trim().length < 4;
   const faltaNombre = txt(form, "nombresApellidos").trim().length < 3;
+  const faltaGenero =
+    txt(form, "genero") !== "MASCULINO" && txt(form, "genero") !== "FEMENINO";
   const guardarBloqueado =
-    guardando || sectorOtroIncompleto || ciOcupada || faltaCedula || faltaNombre;
+    guardando || sectorOtroIncompleto || ciOcupada || faltaCedula || faltaNombre || faltaGenero;
+
+  const idsVisibles = datos?.filas.map((p) => p.id) ?? [];
+  const todosSeleccionados =
+    idsVisibles.length > 0 && idsVisibles.every((id) => seleccionados.includes(id));
+
+  const toggleUno = (id: number) => {
+    setSeleccionados((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleTodos = () => {
+    if (todosSeleccionados) {
+      setSeleccionados((prev) => prev.filter((id) => !idsVisibles.includes(id)));
+    } else {
+      setSeleccionados((prev) => Array.from(new Set([...prev, ...idsVisibles])));
+    }
+  };
 
   const resumen = datos?.resumen;
 
@@ -436,31 +521,7 @@ export default function AdminPersonasPage() {
       <LoadingOverlay visible={guardando} icon={<Loader2 className="w-7 h-7 animate-spin" />} title="Guardando" label="Registro" />
 
       <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {esKardex && (
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <Link
-              href="/kardex/solicitudes"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
-            >
-              <CheckCircle2 className="h-4 w-4 text-teal-700 dark:text-teal-400" />
-              Solicitudes de Titulación
-            </Link>
-            <Link
-              href="/admin/personas"
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition"
-            >
-              <Users className="h-4 w-4" />
-              Registrar Personas
-            </Link>
-            <Link
-              href="/admin/importar"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 transition"
-            >
-              <Upload className="h-4 w-4 text-teal-700 dark:text-teal-400" />
-              Importar Usuarios (Excel / CSV)
-            </Link>
-          </div>
-        )}
+        {esKardex && <KardexNav activa="personas" ocultarExportar />}
 
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -480,7 +541,24 @@ export default function AdminPersonasPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => handleExport("excel")}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm transition"
+              title="Generar Excel en memoria RAM"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Excel ({tipo === "TITULADO" ? "Titulados" : tipo === "EGRESADO" ? "Egresados" : "Todos"})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("csv")}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition"
+              title="Generar CSV en memoria RAM"
+            >
+              <Download className="w-4 h-4" /> CSV
+            </button>
             <Link
               href="/admin/importar"
               className="inline-flex items-center gap-2 px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-sm transition"
@@ -495,6 +573,23 @@ export default function AdminPersonasPage() {
             </button>
           </div>
         </div>
+
+        {avisoAlta && (
+          <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              {avisoAlta}
+            </span>
+            <button
+              type="button"
+              onClick={() => setAvisoAlta(null)}
+              className="p-1 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900"
+              aria-label="Cerrar aviso"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Resumen */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -549,10 +644,35 @@ export default function AdminPersonasPage() {
             <option value="DESEMPLEADO">Desempleado</option>
           </select>
 
+          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-xs font-bold text-red-800 dark:text-red-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={soloIncompletos}
+              onChange={(e) => { setSoloIncompletos(e.target.checked); setPagina(1); }}
+              className="w-3.5 h-3.5 rounded border-red-300 text-red-600 focus:ring-red-500"
+            />
+            Solo datos incompletos
+          </label>
+
           <button onClick={cargar} title="Recargar"
             className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-blue-900 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition">
             <RefreshCw className={`w-4 h-4 ${cargando ? "animate-spin" : ""}`} />
           </button>
+        </div>
+
+        {/* Aviso sobre registros incompletos remarcados en rojo */}
+        <div className="bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900 rounded-xl px-4 py-2.5 text-xs text-red-800 dark:text-red-200 flex items-center justify-between gap-2 flex-wrap">
+          <span className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+            <span>
+              Los registros remarcados en <b>color rojo</b> necesitan actualización en sus datos que no se pudieron obtener en su registro.
+            </span>
+          </span>
+          {(resumen?.incompletos ?? 0) > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-100 font-black">
+              {resumen?.incompletos} por completar
+            </span>
+          )}
         </div>
 
         {/* Error */}
@@ -562,12 +682,54 @@ export default function AdminPersonasPage() {
           </div>
         )}
 
+        {seleccionados.length > 0 && (
+          <div className="bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-xs font-bold text-red-900 dark:text-red-200">
+              {seleccionados.length} registro(s) seleccionado(s)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSeleccionados([])}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 hover:bg-red-100 dark:hover:bg-red-900/50 transition"
+              >
+                Limpiar selección
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModoBorrado("masivo");
+                  setEditando(null);
+                  setMotivoBaja("");
+                  setMsg(null);
+                  setModal("borrar");
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-black bg-red-700 hover:bg-red-800 text-white shadow-sm transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Dar de baja seleccionados ({seleccionados.length})
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tabla */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider">
+                  <th className="py-3 pl-4 pr-2 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Seleccionar todos"
+                      title="Seleccionar todos en esta página"
+                      checked={todosSeleccionados}
+                      onChange={toggleTodos}
+                      disabled={idsVisibles.length === 0}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-900 focus:ring-blue-600 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4">Persona</th>
                   <th className="py-3 px-4">Tipo</th>
                   <th className="py-3 px-4">Titulación / Egreso</th>
@@ -578,31 +740,53 @@ export default function AdminPersonasPage() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {cargando && datos === null && (
-                  <tr><td colSpan={6} className="py-10 text-center text-slate-400">Cargando…</td></tr>
+                  <tr><td colSpan={7} className="py-10 text-center text-slate-400">Cargando…</td></tr>
                 )}
                 {!cargando && datos?.filas.length === 0 && (
-                  <tr><td colSpan={6} className="py-10 text-center text-slate-400">
+                  <tr><td colSpan={7} className="py-10 text-center text-slate-400">
                     No hay registros que coincidan con la búsqueda.
                   </td></tr>
                 )}
-                {datos?.filas.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                {datos?.filas.map((p) => {
+                  const faltantes = camposFaltantesPersona(p);
+                  const incompleto = faltantes.length > 0;
+                  return (
+                  <tr
+                    key={p.id}
+                    className={
+                      incompleto
+                        ? "bg-red-50/90 dark:bg-red-950/40 hover:bg-red-100/75 dark:hover:bg-red-950/60 border-l-4 border-l-red-500 transition"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition"
+                    }
+                  >
+                    <td className="py-3 pl-4 pr-2 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label={`Seleccionar a ${p.nombresApellidos}`}
+                        checked={seleccionados.includes(p.id)}
+                        onChange={() => toggleUno(p.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-900 focus:ring-blue-600 cursor-pointer"
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        {p.imagenUrl ? (
-                          <img
-                            src={p.imagenUrl}
-                            alt={p.nombresApellidos}
-                            className="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
-                          />
-                        ) : (
-                          <span className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-black flex items-center justify-center shrink-0">
-                            {ETIQUETA_GENERO[p.genero] ?? "?"}
-                          </span>
-                        )}
+                        <span
+                          className={`w-8 h-8 rounded-full border text-xs font-black flex items-center justify-center shrink-0 ${
+                            incompleto
+                              ? "bg-red-100 dark:bg-red-900/60 border-red-300 dark:border-red-700 text-red-800 dark:text-red-200"
+                              : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                          }`}
+                        >
+                          {ETIQUETA_GENERO[p.genero] ?? "?"}
+                        </span>
                         <div className="min-w-0">
                           <p className="font-semibold text-slate-900 dark:text-white truncate max-w-[240px]">{p.nombresApellidos}</p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">{p.cedulaIdentidad}</p>
+                          {incompleto && (
+                            <p className="mt-0.5 text-[10px] font-bold text-red-700 dark:text-red-300">
+                              Falta: {faltantes.join(", ")}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -647,14 +831,24 @@ export default function AdminPersonasPage() {
                           className="p-2 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950 rounded-lg transition">
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button onClick={() => { setEditando(p); setModal("borrar"); setMsg(null); }} title="Dar de baja"
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition">
+                        <button
+                          onClick={() => {
+                            setModoBorrado("uno");
+                            setEditando(p);
+                            setMotivoBaja("");
+                            setMsg(null);
+                            setModal("borrar");
+                          }}
+                          title="Dar de baja"
+                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -768,23 +962,24 @@ export default function AdminPersonasPage() {
                     Género *
                     <EtiquetaKardex />
                     <select value={txt(form, "genero")} onChange={(e) => set("genero", e.target.value)} className={inp}>
+                      <option value="">Seleccione…</option>
                       <option value="MASCULINO">Masculino</option>
                       <option value="FEMENINO">Femenino</option>
-                      <option value="PREFIERO_NO_DECIR">Prefiero no decir</option>
                     </select>
+                    {err("genero") && <span className={errMsg}>{err("genero")}</span>}
                   </label>
 
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Semestre de ingreso
                     <EtiquetaKardex />
-                    <input value={txt(form, "semestreIngreso")} onChange={(e) => set("semestreIngreso", e.target.value)} placeholder="I/2016" className={inp} />
+                    <input value={txt(form, "semestreIngreso")} onChange={(e) => set("semestreIngreso", e.target.value)} placeholder="I/2016 o 2016" className={inp} />
                     {err("semestreIngreso") && <span className={errMsg}>{err("semestreIngreso")}</span>}
                   </label>
 
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Semestre de egreso
                     <EtiquetaKardex />
-                    <input value={txt(form, "semestreEgreso")} onChange={(e) => set("semestreEgreso", e.target.value)} placeholder="II/2020" className={inp} />
+                    <input value={txt(form, "semestreEgreso")} onChange={(e) => set("semestreEgreso", e.target.value)} placeholder="II/2020 o 2020" className={inp} />
                     {err("semestreEgreso") && <span className={errMsg}>{err("semestreEgreso")}</span>}
                   </label>
 
@@ -797,18 +992,18 @@ export default function AdminPersonasPage() {
                   {esTitulado && (
                     <>
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Año de titulación *
+                        Año de titulación
                         <EtiquetaKardex />
                         <input type="number" value={txt(form, "anioTitulacion")} onChange={(e) => set("anioTitulacion", e.target.value)} className={inp} />
                         {err("anioTitulacion") && <span className={errMsg}>{err("anioTitulacion")}</span>}
                       </label>
 
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Modalidad de titulación *
+                        Modalidad de titulación
                         <EtiquetaKardex />
                         <select value={txt(form, "modalidadTitulacion")} onChange={(e) => set("modalidadTitulacion", e.target.value)} className={inp}>
                           <option value="">Seleccione…</option>
-                          {["Tesis", "Proyecto de grado", "Examen de grado", "Trabajo dirigido", "Otro"].map((m) => (
+                          {MODALIDADES_OFICIALES.map((m) => (
                             <option key={m} value={m}>{m}</option>
                           ))}
                         </select>
@@ -833,7 +1028,7 @@ export default function AdminPersonasPage() {
                   </h3>
                   <div className="grid sm:grid-cols-2 gap-3">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      ¿Planea titularse? *
+                      ¿Planea titularse?
                       <select value={txt(form, "planeaTitularse")} onChange={(e) => {
                         set("planeaTitularse", e.target.value);
                         // Limpiar los campos que dejan de aplicar
@@ -850,7 +1045,7 @@ export default function AdminPersonasPage() {
 
                     {muestraInicio && (
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        ¿Inició proceso de titulación? *
+                        ¿Inició proceso de titulación?
                         <select value={txt(form, "inicioProcesoTitulacion")} onChange={(e) => {
                           set("inicioProcesoTitulacion", e.target.value);
                           if (e.target.value === "SI") set("motivoNoTitulacion", "");
@@ -865,7 +1060,7 @@ export default function AdminPersonasPage() {
 
                     {muestraMotivo && (
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Motivo de no titulación *
+                        Motivo de no titulación
                         <select value={txt(form, "motivoNoTitulacion")} onChange={(e) => set("motivoNoTitulacion", e.target.value)} className={inp}>
                           <option value="">Seleccione…</option>
                           {[
@@ -944,58 +1139,6 @@ export default function AdminPersonasPage() {
                   </label>
 
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    <span className="flex items-center gap-1.5">
-                      Foto / Imagen
-                      <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500">(URL, arrastre o subida)</span>
-                    </span>
-                    <input
-                      value={txt(form, "imagenUrl")}
-                      onChange={(e) => set("imagenUrl", e.target.value)}
-                      className={inp}
-                      placeholder="https://... o arrastre una imagen aquí"
-                    />
-                    {err("imagenUrl") && <span className={errMsg}>{err("imagenUrl")}</span>}
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setDragOver(true);
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setDragOver(false);
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) void subirImagenPersona(file);
-                      }}
-                      className={`mt-2 border-2 border-dashed rounded-lg p-3 transition-colors ${
-                        dragOver
-                          ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
-                          : "border-slate-300 dark:border-slate-600 hover:border-blue-400"
-                      }`}
-                    >
-                      <input
-                        ref={imgFileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) void subirImagenPersona(file);
-                          e.target.value = "";
-                        }}
-                      />
-                      <button
-                        type="button"
-                        disabled={subiendoImg}
-                        onClick={() => imgFileInputRef.current?.click()}
-                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-                      >
-                        {subiendoImg ? "Subiendo imagen…" : "¿Subir archivo JPG/PNG/WEBP?"}
-                      </button>
-                    </div>
-                  </label>
-
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Tiempo de inserción laboral (meses)
                     <input type="number" min={0} value={txt(form, "tiempoInsercionLaboralMeses")} onChange={(e) => set("tiempoInsercionLaboralMeses", e.target.value)} className={inp} />
                   </label>
@@ -1009,7 +1152,16 @@ export default function AdminPersonasPage() {
             </div>
 
             {/* Pie */}
-            <div className="sticky bottom-0 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-end gap-2 rounded-b-2xl">
+            <div className="sticky bottom-0 px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl">
+              {(sectorOtroIncompleto || ciOcupada || faltaGenero) && (
+                <p className="text-[11px] text-red-600 dark:text-red-400 mr-auto">
+                  {ciOcupada
+                    ? "La cédula ya está registrada."
+                    : sectorOtroIncompleto
+                      ? "Especifique cuál es el otro sector para poder guardar."
+                      : "Debe seleccionar el género (Masculino o Femenino)."}
+                </p>
+              )}
               <button onClick={() => setModal("cerrado")} className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800">
                 Cancelar
               </button>
@@ -1017,32 +1169,35 @@ export default function AdminPersonasPage() {
                 className="px-5 py-2 rounded-xl text-xs font-black bg-blue-900 hover:bg-blue-800 text-white disabled:opacity-40 disabled:cursor-not-allowed">
                 {guardando ? "Guardando…" : modal === "nuevo" ? "Registrar persona" : "Guardar cambios"}
               </button>
-              {(sectorOtroIncompleto || ciOcupada) && (
-                <p className="text-[11px] text-red-600 dark:text-red-400 self-center mr-2">
-                  {ciOcupada
-                    ? "La cédula ya está registrada."
-                    : "Especifique cuál es el otro sector para poder guardar."}
-                </p>
-              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Modal de baja ───────────────────────────────────────────────────── */}
-      {modal === "borrar" && editando && (
+      {/* ── Modal de baja (individual o masiva) ─────────────────────────────── */}
+      {modal === "borrar" && (modoBorrado === "masivo" ? seleccionados.length > 0 : Boolean(editando)) && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400">
                 <ShieldAlert className="w-6 h-6" />
               </div>
-              <h2 className="font-black text-base text-slate-900 dark:text-white">Dar de baja</h2>
+              <h2 className="font-black text-base text-slate-900 dark:text-white">
+                {modoBorrado === "masivo"
+                  ? `Dar de baja a ${seleccionados.length} registro(s)`
+                  : "Dar de baja"}
+              </h2>
             </div>
 
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              ¿Está seguro de dar de baja a <b>{editando.nombresApellidos}</b> ({editando.cedulaIdentidad})?
-            </p>
+            {modoBorrado === "masivo" ? (
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                ¿Está seguro de dar de baja los <b>{seleccionados.length}</b> registros seleccionados?
+              </p>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                ¿Está seguro de dar de baja a <b>{editando!.nombresApellidos}</b> ({editando!.cedulaIdentidad})?
+              </p>
+            )}
 
             <div className="mt-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
               <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -1052,20 +1207,72 @@ export default function AdminPersonasPage() {
               </span>
             </div>
 
+            <label className="block mt-4 text-xs font-bold text-slate-700 dark:text-slate-300">
+              Motivo de la baja *
+              <textarea
+                rows={3}
+                maxLength={500}
+                value={motivoBaja}
+                onChange={(e) => setMotivoBaja(e.target.value)}
+                placeholder="Ej. Error de importación, registro duplicado…"
+                className={inp}
+              />
+              <span className="mt-1 block text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                Obligatorio (mínimo 3 caracteres). Se guardará en el historial de auditoría.
+              </span>
+            </label>
+
             {msg && <div className="mt-3 text-xs bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-lg px-3 py-2">{msg.texto}</div>}
 
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setModal("cerrado")} className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <button
+                type="button"
+                onClick={() => setModal("cerrado")}
+                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
                 Cancelar
               </button>
-              <button onClick={eliminar} disabled={guardando}
-                className="px-4 py-2 rounded-xl text-xs font-black bg-red-700 hover:bg-red-800 text-white disabled:opacity-50">
+              <button
+                type="button"
+                onClick={eliminar}
+                disabled={guardando || motivoBaja.trim().length < 3}
+                className="px-4 py-2 rounded-xl text-xs font-black bg-red-700 hover:bg-red-800 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 {guardando ? "Procesando…" : "Sí, dar de baja"}
               </button>
             </div>
           </div>
         </div>
       )}
+      {exportError && (
+        <div className="fixed bottom-6 right-6 z-[150] max-w-sm rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-900 dark:text-red-200 shadow-lg">
+          <b className="block font-bold">No se pudo descargar</b>
+          {exportError}
+          <button
+            type="button"
+            onClick={() => setExportError(null)}
+            className="mt-2 block text-xs font-bold underline"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
+      <ExportModal
+        isOpen={exportModal.open}
+        onClose={() => setExportModal((m) => ({ ...m, open: false }))}
+        onConfirm={confirmExport}
+        title={
+          tipo === "TITULADO"
+            ? "titulados"
+            : tipo === "EGRESADO"
+              ? "egresados"
+              : "titulados y egresados"
+        }
+        formato={exportModal.formato}
+        params={exportModal.params}
+        aviso="La descarga se realiza mediante un enlace seguro que caduca en 5 minutos y solo puede usarse desde esta sesión."
+      />
     </>
   );
 }

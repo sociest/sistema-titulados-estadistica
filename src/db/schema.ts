@@ -43,11 +43,12 @@ export const estadoRegistroEnum = pgEnum("estado_registro_enum", [
 ]);
 
 export const modalidadTitulacionEnum = pgEnum("modalidad_titulacion_enum", [
-  "Tesis",
-  "Proyecto de grado",
-  "Examen de grado",
-  "Trabajo dirigido",
-  "Otro",
+  "TESIS",
+  "PROYECTO DE GRADO",
+  "EXAMEN DE GRADO",
+  "TRABAJO DIRIGIDO",
+  "EXCELENCIA",
+  "OTRO",
 ]);
 
 export const planeaTitularseEnum = pgEnum("planea_titularse_enum", [

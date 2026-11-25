@@ -116,8 +116,6 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       CORREO_REMITENTE: ${CORREO_REMITENTE:-}
       SMTP_FALLBACK: ${SMTP_FALLBACK:-}
-      KARDEX_SEED_EMAIL: ${KARDEX_SEED_EMAIL:-}
-      KARDEX_SEED_PASSWORD: ${KARDEX_SEED_PASSWORD:-}
       TZ: America/La_Paz
     volumes:
       - solicitudes_storage:/app/storage/solicitudes

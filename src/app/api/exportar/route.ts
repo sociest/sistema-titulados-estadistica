@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { personas, type Persona } from "@/db/schema";
 import { eq, and, gt, sql } from "drizzle-orm";
 import * as XLSX from "xlsx";
-import { exigirAdmin, errorInterno, leerSesionVigente } from "@/lib/guards";
+import { exigirAdminOKardex, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { aFiltroEnum } from "@/lib/filtros";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { sanearCeldaExportacion, sanearReporte } from "@/lib/privacidad";
@@ -100,7 +100,7 @@ function escaparCeldaCsv(valor: unknown): string {
  * revocado debe cortar el acceso aunque el enlace sea de hace un minuto.
  */
 export async function GET(request: NextRequest) {
-  const denegado = await exigirAdmin(request);
+  const denegado = await exigirAdminOKardex(request);
   if (denegado) return denegado;
 
   try {
@@ -108,9 +108,7 @@ export async function GET(request: NextRequest) {
 
     // ── Verificación de la firma de descarga ──────────────────────────────────
     const sesion = await leerSesionVigente(request);
-    if (!sesion || sesion.rol !== "admin") {
-      // `exigirAdmin` ya lo habría comprobado; se repite explícitamente porque la firma
-      // se verifica contra un sujeto y sin sujeto no hay contra qué comparar.
+    if (!sesion || (sesion.rol !== "admin" && sesion.rol !== "KARDEX")) {
       return NextResponse.json({ error: "Debe iniciar sesión" }, { status: 401 });
     }
 

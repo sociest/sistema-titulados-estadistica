@@ -1,50 +1,52 @@
-import { eq } from "drizzle-orm";
 import { db } from "../src/db";
 import { usuarios } from "../src/db/schema";
 import { hashPassword } from "../src/lib/password";
 
-// Sin valor por defecto: el correo sale solo de KARDEX_SEED_EMAIL (se lee al ejecutar, no al
-// importar). No se crea ninguna cuenta Kardex "de fábrica" (antes se creaba kardex@umsa.bo).
+export const KARDEX_CORREO = "kardex@gen.bo";
+export const KARDEX_PASSWORD = "kardex123";
 
-export async function asegurarCuentaKardex(): Promise<{ correo: string; password: string } | null> {
-  const CORREO_KARDEX = (process.env.KARDEX_SEED_EMAIL || "").trim().toLowerCase();
-  if (!CORREO_KARDEX) {
-    console.warn("[seed] KARDEX_SEED_EMAIL no está definida: no se crea usuario Kardex.");
-    return null;
+/**
+ * Asegura la cuenta base de Kardex en la tabla `usuarios` con contraseña hasheada.
+ * Si `sobrescribir` es true (--reset en desarrollo), restablece la contraseña base;
+ * en caso contrario respeta cualquier cambio previo hecho desde /admin/usuarios.
+ */
+export async function asegurarCuentaKardex(
+  sobrescribir = false
+): Promise<{ correo: string; password: string }> {
+  const hash = hashPassword(KARDEX_PASSWORD);
+
+  if (sobrescribir) {
+    await db
+      .insert(usuarios)
+      .values({
+        ci: null,
+        nombre: "Kardex",
+        correo: KARDEX_CORREO,
+        passwordHash: hash,
+        rol: "KARDEX",
+        estado: "activo",
+      })
+      .onConflictDoUpdate({
+        target: usuarios.correo,
+        set: {
+          passwordHash: hash,
+          rol: "KARDEX",
+          estado: "activo",
+        },
+      });
+  } else {
+    await db
+      .insert(usuarios)
+      .values({
+        ci: null,
+        nombre: "Kardex",
+        correo: KARDEX_CORREO,
+        passwordHash: hash,
+        rol: "KARDEX",
+        estado: "activo",
+      })
+      .onConflictDoNothing({ target: usuarios.correo });
   }
-  const existente = await db
-    .select({ rol: usuarios.rol })
-    .from(usuarios)
-    .where(eq(usuarios.correo, CORREO_KARDEX))
-    .limit(1);
 
-  if (existente.length) {
-    if (existente[0]!.rol !== "KARDEX") {
-      throw new Error(`El correo ${CORREO_KARDEX} ya pertenece a un usuario con otro rol.`);
-    }
-    return null;
-  }
-
-  const password = process.env.KARDEX_SEED_PASSWORD;
-  // Sin KARDEX_SEED_PASSWORD en el entorno no se crea la cuenta: no hay contraseña por defecto.
-  if (!password) {
-    console.warn("[seed] KARDEX_SEED_PASSWORD no está definida en .env: no se crea el usuario Kardex.");
-    return null;
-  }
-  if (password.length < 8) throw new Error("KARDEX_SEED_PASSWORD debe tener al menos 8 caracteres.");
-
-  const [creada] = await db
-    .insert(usuarios)
-    .values({
-      ci: null,
-      nombre: "USUARIO KARDEX",
-      correo: CORREO_KARDEX,
-      passwordHash: hashPassword(password),
-      rol: "KARDEX",
-      estado: "activo",
-    })
-    .onConflictDoNothing({ target: usuarios.correo })
-    .returning({ id: usuarios.id });
-
-  return creada ? { correo: CORREO_KARDEX, password } : null;
+  return { correo: KARDEX_CORREO, password: KARDEX_PASSWORD };
 }

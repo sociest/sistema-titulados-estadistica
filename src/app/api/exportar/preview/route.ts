@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { personas } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { exigirAdmin, errorInterno } from "@/lib/guards";
+import { exigirAdminOKardex, errorInterno } from "@/lib/guards";
 import { aFiltroEnum, aValorEnum } from "@/lib/filtros";
 import { sanearReporte } from "@/lib/privacidad";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * ya viendo en su sesión, y no genera un archivo fuera de su máquina.
  */
 export async function GET(request: NextRequest) {
-  const denegado = await exigirAdmin(request);
+  const denegado = await exigirAdminOKardex(request);
   if (denegado) return denegado;
 
   try {

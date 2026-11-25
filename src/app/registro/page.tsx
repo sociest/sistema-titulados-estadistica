@@ -319,7 +319,7 @@ export default function PaginaRegistro() {
                 <span className="text-xs font-bold uppercase tracking-wide">Modalidad de titulación *</span>
                 <select className={inp} value={f.modalidadTitulacion} onChange={(e) => set("modalidadTitulacion", e.target.value)}>
                   <option value="">Seleccione…</option>
-                  {["Tesis", "Proyecto de grado", "Examen de grado", "Trabajo dirigido", "Otro"].map((m) => (
+                  {["TESIS", "PROYECTO DE GRADO", "EXAMEN DE GRADO", "TRABAJO DIRIGIDO", "EXCELENCIA", "OTRO"].map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>

@@ -484,11 +484,12 @@ export default function AdminDashboardPage() {
               className="no-print text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600 hover:border-slate-400 dark:hover:border-slate-500 transition"
             >
               <option value="TODAS">Todas las modalidades</option>
-              <option value="Tesis">Tesis</option>
-              <option value="Proyecto de grado">Proyecto de grado</option>
-              <option value="Examen de grado">Examen de grado</option>
-              <option value="Trabajo dirigido">Trabajo dirigido</option>
-              <option value="Otro">Otro</option>
+              <option value="TESIS">TESIS</option>
+              <option value="PROYECTO DE GRADO">PROYECTO DE GRADO</option>
+              <option value="EXAMEN DE GRADO">EXAMEN DE GRADO</option>
+              <option value="TRABAJO DIRIGIDO">TRABAJO DIRIGIDO</option>
+              <option value="EXCELENCIA">EXCELENCIA</option>
+              <option value="OTRO">OTRO</option>
             </select>
           )}
 

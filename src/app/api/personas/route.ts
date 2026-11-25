@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { aFiltroEnum, aValorEnum } from "@/lib/filtros";
-import { personas } from "@/db/schema";
-import { and, count, desc, eq, ilike, ne, or, sql, type SQL } from "drizzle-orm";
+import { personas, credencialesPersona } from "@/db/schema";
+import { and, count, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { exigirAdminOKardex, exigirAdminOContacto, verificarCsrf, errorInterno, leerSesionVigente } from "@/lib/guards";
 import { registrarCambio } from "@/lib/auditoriaTablas";
+import { registrarAuditoria } from "@/lib/auditoria";
+import { revocarSesionesDePersona } from "@/lib/sesiones";
 import { calcularCambios } from "@/lib/diff";
 import { personaAdminSchema, personaAutogestionSchema, primerErrorZod } from "@/lib/validaciones";
 import { invalidarCacheDashboard } from "@/lib/cacheDashboard";
+import { hashPasswordAsync } from "@/lib/password";
 
 export const dynamic = "force-dynamic";
 
@@ -128,12 +131,32 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (sp.get("soloIncompletos") === "true") {
+      conds.push(
+        sql`(
+          ${personas.genero} = 'PREFIERO_NO_DECIR'
+          OR ${personas.semestreIngreso} IS NULL OR trim(${personas.semestreIngreso}) = ''
+          OR ${personas.semestreEgreso} IS NULL OR trim(${personas.semestreEgreso}) = ''
+          OR ${personas.anioEgreso} IS NULL
+          OR (${personas.tipo} = 'TITULADO' AND (${personas.anioTitulacion} IS NULL OR ${personas.modalidadTitulacion} IS NULL))
+        )`
+      );
+    }
+
     const where = conds.length ? and(...conds) : undefined;
 
     const pagina = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
     const perPage = Math.min(200, Math.max(5, parseInt(sp.get("perPage") ?? "25", 10) || 25));
     const ordenCol = ORDENES[sp.get("orden") ?? "nombre"] ?? personas.nombresApellidos;
     const direccion = sp.get("dir") === "desc" ? desc(ordenCol) : ordenCol;
+
+    const condIncompleto = sql`(
+      ${personas.genero} = 'PREFIERO_NO_DECIR'
+      OR ${personas.semestreIngreso} IS NULL OR trim(${personas.semestreIngreso}) = ''
+      OR ${personas.semestreEgreso} IS NULL OR trim(${personas.semestreEgreso}) = ''
+      OR ${personas.anioEgreso} IS NULL
+      OR (${personas.tipo} = 'TITULADO' AND (${personas.anioTitulacion} IS NULL OR ${personas.modalidadTitulacion} IS NULL))
+    )`;
 
     const [[{ total }], filas, resumen] = await Promise.all([
       db.select({ total: count() }).from(personas).where(where),
@@ -149,6 +172,7 @@ export async function GET(req: NextRequest) {
           tipo: personas.tipo,
           n: sql<number>`count(*)::int`,
           empleados: sql<number>`count(*) filter (where ${personas.estadoLaboral} in ('EMPLEADO','INDEPENDIENTE'))::int`,
+          incompletos: sql<number>`count(*) filter (where ${condIncompleto})::int`,
         })
         .from(personas)
         .where(where)
@@ -165,6 +189,7 @@ export async function GET(req: NextRequest) {
         titulados: resumen.find((r) => r.tipo === "TITULADO")?.n ?? 0,
         egresados: resumen.find((r) => r.tipo === "EGRESADO")?.n ?? 0,
         empleados: resumen.reduce((a, r) => a + r.empleados, 0),
+        incompletos: resumen.reduce((a, r) => a + r.incompletos, 0),
       },
     });
   } catch (e) {
@@ -220,6 +245,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (typeof datos.correoElectronico === "string" && datos.correoElectronico.trim() !== "") {
+      const correoNorm = datos.correoElectronico.trim().toLowerCase();
+      const correoDup = await db
+        .select({ id: personas.id })
+        .from(personas)
+        .where(sql`lower(${personas.correoElectronico}) = ${correoNorm}`)
+        .limit(1);
+      if (correoDup.length) {
+        return NextResponse.json(
+          {
+            error: "Ese correo electrónico ya está asociado a otro registro.",
+            campos: { correoElectronico: ["Correo ya registrado"] },
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // Calcular el tiempo egreso → titulación si vino el año de egreso y el de titulación.
     const tiempoEgresoTitulacionMeses =
       datos.anioEgreso && datos.anioTitulacion
@@ -236,6 +279,11 @@ export async function POST(req: NextRequest) {
     };
 
     const [creada] = await db.insert(personas).values(fila).returning();
+    const hashInicial = await hashPasswordAsync(ci);
+    await db
+      .insert(credencialesPersona)
+      .values({ idPersona: creada!.id, passwordHash: hashInicial })
+      .onConflictDoNothing({ target: credencialesPersona.idPersona });
     invalidarCacheDashboard();
 
     const sesionAlta = await leerSesionVigente(req);
@@ -476,5 +524,130 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json(actualizada);
   } catch (e) {
     return errorInterno(e, "api/personas PATCH");
+  }
+}
+
+/**
+ * DELETE /api/personas → baja lógica masiva de registros seleccionados.
+ * Acepta `{ ids: number[], motivo: string }`. Protegido para admin y KARDEX.
+ */
+export async function DELETE(req: NextRequest) {
+  const denegado = await exigirAdminOKardex(req);
+  if (denegado) return denegado;
+
+  const denegadoCsrf = await verificarCsrf(req);
+  if (denegadoCsrf) return denegadoCsrf;
+
+  const sesion = await leerSesionVigente(req);
+
+  try {
+    let body: { ids?: unknown; motivo?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+    }
+
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+      return NextResponse.json(
+        { error: "Debe seleccionar al menos un registro para dar de baja" },
+        { status: 400 }
+      );
+    }
+
+    const idsInvalidos = body.ids.some((x) => typeof x !== "number" || !Number.isInteger(x) || x <= 0);
+    if (idsInvalidos) {
+      return NextResponse.json(
+        { error: "Los identificadores seleccionados no son válidos" },
+        { status: 400 }
+      );
+    }
+
+    const idsUnicos = Array.from(new Set(body.ids as number[]));
+    if (idsUnicos.length === 0 || idsUnicos.length > 200) {
+      return NextResponse.json(
+        { error: "Puede dar de baja entre 1 y 200 registros a la vez" },
+        { status: 400 }
+      );
+    }
+
+    const motivoLimpio = typeof body.motivo === "string" ? body.motivo.trim().slice(0, 500) : "";
+    if (motivoLimpio.length < 3) {
+      return NextResponse.json(
+        { error: "Debe indicar el motivo de la baja (mínimo 3 caracteres)" },
+        { status: 400 }
+      );
+    }
+
+    const activas = await db
+      .select({
+        id: personas.id,
+        nombresApellidos: personas.nombresApellidos,
+        cedulaIdentidad: personas.cedulaIdentidad,
+      })
+      .from(personas)
+      .where(and(inArray(personas.id, idsUnicos), eq(personas.activo, true)));
+
+    if (!activas.length) {
+      return NextResponse.json(
+        { error: "No se encontraron registros activos para dar de baja" },
+        { status: 404 }
+      );
+    }
+
+    const idsAfectar = activas.map((p) => p.id);
+    const idAdmin = sesion?.rol === "admin" || sesion?.rol === "KARDEX" ? sesion.sub : null;
+    const ahora = new Date();
+
+    const afectadas = await db
+      .update(personas)
+      .set({
+        activo: false,
+        eliminadoEn: ahora,
+        eliminadoPor: idAdmin,
+        motivoBaja: motivoLimpio,
+        actualizadoEn: ahora,
+      })
+      .where(and(inArray(personas.id, idsAfectar), eq(personas.activo, true)))
+      .returning({
+        id: personas.id,
+        nombresApellidos: personas.nombresApellidos,
+        cedulaIdentidad: personas.cedulaIdentidad,
+      });
+
+    await Promise.all(
+      afectadas.map((p) => revocarSesionesDePersona(p.id, "Baja lógica masiva del registro"))
+    );
+
+    invalidarCacheDashboard();
+
+    const resumenNombres = afectadas
+      .slice(0, 10)
+      .map((p) => `${p.nombresApellidos} (${p.cedulaIdentidad})`)
+      .join(", ");
+
+    await registrarAuditoria({
+      accion: "eliminar",
+      entidad: "personas",
+      entidadId: afectadas[0]?.id ?? null,
+      idUsuario: idAdmin,
+      detalles: `Baja lógica masiva (${afectadas.length} registros): ${resumenNombres}${afectadas.length > 10 ? "…" : ""} · motivo: ${motivoLimpio}`,
+      datosAnteriores: { activo: true, ids: afectadas.map((p) => p.id) },
+      datosNuevos: {
+        activo: false,
+        cantidad: afectadas.length,
+        ids: afectadas.map((p) => p.id),
+        motivoBaja: motivoLimpio,
+      },
+      req,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      eliminados: afectadas.length,
+      ids: afectadas.map((p) => p.id),
+    });
+  } catch (e) {
+    return errorInterno(e, "api/personas DELETE");
   }
 }

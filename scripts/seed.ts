@@ -14,26 +14,62 @@
  */
 
 import { db, pool } from "../src/db";
-import { personas, usuarios, noticiasCursos, carreras, solicitudTitulado, solicitudTituladoHistorial, credencialesPersona } from "../src/db/schema";
+import { personas, usuarios, noticiasCursos, carreras, credencialesPersona } from "../src/db/schema";
 import { sql } from "drizzle-orm";
 import { hashPassword } from "../src/lib/password";
 import { asegurarCuentaKardex } from "./seed_kardex";
 
 const RESET = process.argv.includes("--reset");
 
-const ADMIN_CORREO = "adm@gen.bo";
-const ADMIN_PASSWORD = "adm";
+const ADMIN_CORREO = "admin@gen.bo";
+const ADMIN_PASSWORD = "admin123";
+
+async function asegurarCuentaAdmin(sobrescribir = false) {
+  const hash = hashPassword(ADMIN_PASSWORD);
+  if (sobrescribir) {
+    await db
+      .insert(usuarios)
+      .values({
+        ci: null,
+        nombre: "Administrador",
+        correo: ADMIN_CORREO,
+        passwordHash: hash,
+        rol: "admin",
+        estado: "activo",
+      })
+      .onConflictDoUpdate({
+        target: usuarios.correo,
+        set: {
+          passwordHash: hash,
+          rol: "admin",
+          estado: "activo",
+        },
+      });
+  } else {
+    await db
+      .insert(usuarios)
+      .values({
+        ci: null,
+        nombre: "Administrador",
+        correo: ADMIN_CORREO,
+        passwordHash: hash,
+        rol: "admin",
+        estado: "activo",
+      })
+      .onConflictDoNothing({ target: usuarios.correo });
+  }
+}
 
 async function main() {
   const yaHay = await db.select({ n: sql<number>`count(*)` }).from(personas);
   if ((yaHay[0]?.n ?? 0) > 0) {
     if (!RESET) {
-      const kardex = await asegurarCuentaKardex();
+      await asegurarCuentaAdmin(false);
+      await asegurarCuentaKardex(false);
       console.log(
         `La tabla 'personas' ya tiene ${yaHay[0].n} registros. ` +
           `No se insertó nada. Usa "pnpm seed -- --reset" solo en desarrollo.`
       );
-      if (kardex) console.log(`Kardex de prueba: ${kardex.correo} / ${kardex.password}`);
       await cerrar();
       return;
     }
@@ -47,26 +83,10 @@ async function main() {
     await db.execute(sql`DELETE FROM noticias_cursos;`);
   }
 
-  // ── Usuarios administradores ────────────────────────────────────────────────
-  console.log("Insertando o actualizando usuarios administradores...");
-  await db
-    .insert(usuarios)
-    .values({
-      ci: null,
-      nombre: "Administrador",
-      correo: ADMIN_CORREO,
-      passwordHash: hashPassword(ADMIN_PASSWORD),
-      rol: "admin",
-      estado: "activo",
-    })
-    .onConflictDoUpdate({
-      target: usuarios.correo,
-      set: {
-        passwordHash: hashPassword(ADMIN_PASSWORD),
-        estado: "activo",
-      },
-    });
-  const kardex = await asegurarCuentaKardex();
+  // ── Usuarios base (Admin y Kardex) ──────────────────────────────────────────
+  console.log("Insertando o actualizando cuentas base de Administrador y Kardex...");
+  await asegurarCuentaAdmin(RESET);
+  const kardex = await asegurarCuentaKardex(RESET);
 
   // ── Titulados ───────────────────────────────────────────────────────────────
   const dataTitulados = [
@@ -82,7 +102,7 @@ async function main() {
       nivelEstudio: "LICENCIATURA",
       realizoCursoUltimos3Anos: true,
       ultimoCurso: "ANÁLISIS DE DATOS CON R",
-      modalidadTitulacion: "Tesis" as const,
+      modalidadTitulacion: "TESIS" as const,
       areaEspecializacion: "Ciencia de Datos y Bioestadística",
       correoElectronico: "carlos.mendoza@umsa.bo",
       telefono: "71548923",
@@ -105,7 +125,7 @@ async function main() {
       semestreEgreso: "II/2021",
       anioEgreso: 2021,
       anioTitulacion: 2022,
-      modalidadTitulacion: "Proyecto de grado" as const,
+      modalidadTitulacion: "PROYECTO DE GRADO" as const,
       areaEspecializacion: "Econometría y Análisis Actuarial",
       correoElectronico: "mariana.quispe@banco.bo",
       telefono: "76523910",
@@ -128,7 +148,7 @@ async function main() {
       semestreEgreso: "I/2022",
       anioEgreso: 2022,
       anioTitulacion: 2023,
-      modalidadTitulacion: "Examen de grado" as const,
+      modalidadTitulacion: "EXAMEN DE GRADO" as const,
       areaEspecializacion: "Minería de Datos y Machine Learning",
       correoElectronico: "rodrigo.mamani@tech.com",
       telefono: "78912304",
@@ -151,7 +171,7 @@ async function main() {
       semestreEgreso: "II/2022",
       anioEgreso: 2022,
       anioTitulacion: 2023,
-      modalidadTitulacion: "Trabajo dirigido" as const,
+      modalidadTitulacion: "TRABAJO DIRIGIDO" as const,
       areaEspecializacion: "Estadística Social y Demografía",
       correoElectronico: "gvargas@unicef.org",
       telefono: "70654321",
@@ -174,7 +194,7 @@ async function main() {
       semestreEgreso: "II/2019",
       anioEgreso: 2019,
       anioTitulacion: 2020,
-      modalidadTitulacion: "Tesis" as const,
+      modalidadTitulacion: "TESIS" as const,
       areaEspecializacion: "Inferencia Bayesiana",
       correoElectronico: "ftorrez@universidad.edu",
       telefono: "73291045",
@@ -198,7 +218,7 @@ async function main() {
       semestreEgreso: "I/2021",
       anioEgreso: 2021,
       anioTitulacion: 2022,
-      modalidadTitulacion: "Tesis" as const,
+      modalidadTitulacion: "TESIS" as const,
       areaEspecializacion: "Estadística Aplicada a Salud Pública",
       correoElectronico: "lucia.oquendo@gestion.bo",
       telefono: "70112233",
@@ -317,8 +337,7 @@ async function main() {
     { ci: "7823901", carrera: "ECONOMÍA", universidad: "UNIVERSIDAD PÚBLICA DE EL ALTO", facultad: "CIENCIAS ECONÓMICAS", grados: "LICENCIATURA" },
   ]);
 
-  const [solicitudDemo] = await db.insert(solicitudTitulado).values({ ci: "8341920" }).returning({ id: solicitudTitulado.id });
-  await db.insert(solicitudTituladoHistorial).values({ solicitudId: solicitudDemo!.id, ci: "8341920", estado: "PENDIENTE" });
+  // La bandeja de solicitudes de titulación inicia vacía por defecto.
 
   // ── Noticias y convocatorias ────────────────────────────────────────────────
   console.log("Insertando noticias y convocatorias...");

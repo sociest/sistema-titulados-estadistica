@@ -1,11 +1,18 @@
 import { z } from "zod";
+import {
+  aMayusculasLimpias,
+  normalizarGenero,
+  normalizarModalidad,
+  normalizarSemestre,
+  normalizarTipo,
+} from "./normalizacion";
 
 /**
  * Los formularios envían "" cuando un campo no tiene respuesta. Un enum no acepta "",
  * así que se convierte a null antes de validar (el caso "planeaTitularse: received ''").
  */
 export const enumOpcional = <T extends z.ZodTypeAny>(esquema: T) =>
-  z.preprocess((v) => (v === "" ? null : v), esquema.nullable());
+  z.preprocess((v) => (v === "" || v === undefined ? null : v), esquema.nullable());
 
 /** Imagen de noticia/perfil: URL https segura o archivo ya subido al servidor. */
 export const urlImagenNoticia = z
@@ -54,12 +61,16 @@ const CI_REGEX = /^[0-9]{4,12}$/;
 
 export const tipoEnum = z.enum(["TITULADO", "EGRESADO"]);
 export const generoEnum = z.enum(["MASCULINO", "FEMENINO", "PREFIERO_NO_DECIR"]);
+export const generoObligatorioEnum = z.enum(["MASCULINO", "FEMENINO"], {
+  errorMap: () => ({ message: "Debe seleccionar género (MASCULINO o FEMENINO)" }),
+});
 export const modalidadEnum = z.enum([
-  "Tesis",
-  "Proyecto de grado",
-  "Examen de grado",
-  "Trabajo dirigido",
-  "Otro",
+  "TESIS",
+  "PROYECTO DE GRADO",
+  "EXAMEN DE GRADO",
+  "TRABAJO DIRIGIDO",
+  "EXCELENCIA",
+  "OTRO",
 ]);
 export const planeaEnum = z.enum(["SI", "NO", "NO_SABE"]);
 export const inicioProcesoEnum = z.enum(["SI", "NO"]);
@@ -74,54 +85,74 @@ export const nivelEstudioEnum = z.enum([
   "POSGRADO",
 ]);
 
-const anio = z.coerce.number().int().min(1970, "Año demasiado antiguo").max(2100, "Año inválido");
+const anio = z.preprocess(
+  (v) => (v === null || v === undefined || String(v).trim() === "" ? null : v),
+  z.coerce.number().int().min(1970, "Año demasiado antiguo").max(2100, "Año inválido").nullable()
+);
 
-const semestre = z
-  .string()
-  .trim()
-  .max(30)
-  .regex(
-    /^(I{1,2}\/\d{4}|1er\s+semestre\s+\d{4}|2do\s+semestre\s+\d{4}|20\d{2})$/i,
-    "Formato esperado: I/AAAA, II/AAAA, '1er semestre AAAA' o '2do semestre AAAA'"
+const semestre = z.preprocess(
+  (v) => normalizarSemestre(v),
+  z
+    .string()
+    .max(30)
+    .regex(
+      /^(I{1,2}\/\d{4}|1ER\s+SEMESTRE\s+\d{4}|2DO\s+SEMESTRE\s+\d{4}|(19|20)\d{2})$/i,
+      "Formato esperado: I/AAAA, II/AAAA, AAAA, '1er semestre AAAA' o '2do semestre AAAA'"
+    )
+    .nullable()
+);
+
+const correoOpcional = z.preprocess(
+  (v) => {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim().toLowerCase();
+    return s === "" ? null : s;
+  },
+  z.string().email("Correo inválido").max(150).nullable()
+);
+
+const enteroOpcional = (max: number) =>
+  z.preprocess(
+    (v) => (v === null || v === undefined || String(v).trim() === "" ? null : v),
+    z.coerce.number().int().min(0).max(max).nullable()
   );
 
 const textoOpcional = (max = 500) =>
-  z
-    .string()
-    .trim()
-    .max(max, `Máximo ${max} caracteres`)
-    .transform((v) => (v === "" ? null : v))
-    .nullable()
-    .optional();
+  z.preprocess(
+    (v) => {
+      if (v === null || v === undefined) return null;
+      const s = String(v).trim();
+      return s === "" ? null : s;
+    },
+    z.string().max(max, `Máximo ${max} caracteres`).nullable().optional()
+  );
 
-/**
- * Campos que el ADMIN puede escribir (incluye los "K" de Kardex).
- *
- * Decisión D7 (aprobada): validación estricta y condicional.
- *   · Siempre obligatorios: cedula_identidad, nombres_apellidos, tipo y genero.
- *   · TITULADO → anio_titulacion y modalidad_titulacion.
- *   · EGRESADO y planea_titularse = NO → motivo_no_titulacion.
- *   · sector_trabajo = OTRO → sector_trabajo_otro.
- *
- * `tipo` y `genero` NO llevan `.default(...)`: con un valor por defecto, un alta que
- * se cuelgue la mitad y omita el tipo se guardaría silenciosamente como TITULADO, y
- * un titular que no conteste género quedaría como "PREFIERO_NO_DECIR" sin que nadie se
- * entere. Exigirlos convierte esos dos casos en un error visible y con mensaje.
- */
 const personaAdminBase = z.object({
-    tipo: tipoEnum,
-    nombresApellidos: z.string().trim().min(3, "Nombre muy corto").max(150, "Máximo 150 caracteres"),
+    tipo: z.preprocess((v) => normalizarTipo(v), tipoEnum),
+    nombresApellidos: z.preprocess(
+      (v) => (typeof v === "string" ? aMayusculasLimpias(v) : v),
+      z.string().min(3, "Nombre muy corto").max(150, "Máximo 150 caracteres")
+    ),
     cedulaIdentidad: z
       .string()
       .trim()
       .toUpperCase()
       .regex(CI_REGEX, "La cédula debe contener únicamente de 4 a 12 dígitos"),
-    genero: generoEnum,
-    semestreIngreso: semestre.nullable().optional(),
-    semestreEgreso: semestre.nullable().optional(),
-    anioEgreso: anio.nullable().optional(),
-    anioTitulacion: anio.nullable().optional(),
-    modalidadTitulacion: enumOpcional(modalidadEnum).optional(),
+    genero: z.preprocess(
+      (v) => (v === null || v === undefined ? "" : normalizarGenero(v)),
+      generoObligatorioEnum
+    ),
+    semestreIngreso: semestre.optional(),
+    semestreEgreso: semestre.optional(),
+    anioEgreso: anio.optional(),
+    anioTitulacion: anio.optional(),
+    modalidadTitulacion: z.preprocess(
+      (v) => {
+        if (v === null || v === undefined || String(v).trim() === "") return null;
+        return normalizarModalidad(v);
+      },
+      modalidadEnum.nullable()
+    ).optional(),
     areaEspecializacion: textoOpcional(200),
     nivelEstudio: enumOpcional(nivelEstudioEnum).optional(),
     realizoCursoUltimos3Anos: z.boolean().nullable().optional(),
@@ -131,44 +162,38 @@ const personaAdminBase = z.object({
     inicioProcesoTitulacion: enumOpcional(inicioProcesoEnum).optional(),
     motivoNoTitulacion: enumOpcional(motivoEnum).optional(),
 
-    correoElectronico: z
-      .string()
-      .trim()
-      .email("Correo inválido")
-      .max(150)
-      .transform((v) => (v === "" ? null : v))
-      .nullable()
-      .optional(),
-    telefono: z
-      .string()
-      .trim()
-      .max(20)
-      .regex(/^[0-9+\-\s()]*$/, "Teléfono inválido")
-      .transform((v) => (v === "" ? null : v))
-      .nullable()
-      .optional(),
+    correoElectronico: correoOpcional.optional(),
+    telefono: z.preprocess(
+      (v) => {
+        if (v === null || v === undefined) return null;
+        const s = String(v).trim();
+        return s === "" ? null : s;
+      },
+      z.string().max(20).regex(/^[0-9+\-\s()]*$/, "Teléfono inválido").nullable().optional()
+    ),
     redesSociales: textoOpcional(300),
     ciudadRegionTrabajo: textoOpcional(200),
 
-    // Campo de imagen: URL web, ruta local o ruta relativa. Opcional.
     imagenUrl: urlImagenNoticia.nullable().optional(),
 
-    estadoLaboral: estadoLaboralEnum.default("DESEMPLEADO"),
+    estadoLaboral: z.preprocess(
+      (v) => (v === null || v === undefined || String(v).trim() === "" ? "DESEMPLEADO" : String(v).trim().toUpperCase()),
+      estadoLaboralEnum.default("DESEMPLEADO")
+    ),
     sectorTrabajo: enumOpcional(sectorEnum).optional(),
     sectorTrabajoOtro: textoOpcional(200),
     ocupacionCargo: textoOpcional(200),
-    trabajaEnEstadistica: z.coerce.boolean().default(false),
+    trabajaEnEstadistica: booleanoFalso,
 
-    // Métricas calculadas. El admin puede corregirlas a mano si el cálculo automático
-    // no aplica, pero normalmente se derivan de anioEgreso/anioTitulacion.
-    tiempoEgresoTitulacionMeses: z.coerce.number().int().min(0).max(1200).nullable().optional(),
-    tiempoInsercionLaboralMeses: z.coerce.number().int().min(0).max(600).nullable().optional(),
+    tiempoEgresoTitulacionMeses: enteroOpcional(1200).optional(),
+    tiempoInsercionLaboralMeses: enteroOpcional(600).optional(),
     observaciones: textoOpcional(2000),
 }).strict();
 
 /**
- * Alta manual y corrección por el administrador: reglas completas (planea titularse,
- * motivo de no titulación, cursos, sector, etc.).
+ * Alta manual y corrección por el administrador o Kardex:
+ * Solo exige tipo, nombresApellidos, cedulaIdentidad y genero (MASCULINO | FEMENINO).
+ * El resto puede quedar vacío/nulo para completarse luego (y el listado marca en rojo los que tienen datos faltantes).
  */
 export const personaAdminSchema = personaAdminBase.superRefine((v, ctx) => {
     if (v.realizoCursoUltimos3Anos === true && !v.ultimoCurso) {
@@ -177,7 +202,6 @@ export const personaAdminSchema = personaAdminBase.superRefine((v, ctx) => {
     if (v.realizoCursoUltimos3Anos === false && v.ultimoCurso) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ultimoCurso"], message: "El curso sólo aplica si respondió SÍ" });
     }
-    // Si el sector es OTRO, exigir la descripción (important.md y spec del PDF).
     if (v.sectorTrabajo === "OTRO" && !v.sectorTrabajoOtro) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -192,22 +216,6 @@ export const personaAdminSchema = personaAdminBase.superRefine((v, ctx) => {
         message: "Solo aplica si el sector es 'OTRO'",
       });
     }
-    // Titulados deben tener datos de titulación formal.
-    if (v.tipo === "TITULADO" && !v.anioTitulacion) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["anioTitulacion"],
-        message: "Un titulado debe tener año de titulación",
-      });
-    }
-    if (v.tipo === "TITULADO" && !v.modalidadTitulacion) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["modalidadTitulacion"],
-        message: "Un titulado debe tener modalidad de titulación",
-      });
-    }
-    // Solo egresados tienen los 3 campos de titulación.
     if (v.tipo === "TITULADO") {
       if (v.planeaTitularse) {
         ctx.addIssue({
@@ -224,33 +232,11 @@ export const personaAdminSchema = personaAdminBase.superRefine((v, ctx) => {
         });
       }
     }
-    // Matriz condicional de egresados (important.md §1)
-    if (v.tipo === "EGRESADO") {
-      if (!v.planeaTitularse) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["planeaTitularse"],
-          message: "Todo egresado debe indicar si planea titularse",
-        });
-      }
-      if (v.planeaTitularse === "SI" && !v.inicioProcesoTitulacion) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["inicioProcesoTitulacion"],
-          message: 'Si planea titularse, indique si ya inició el proceso',
-        });
-      }
+    if (v.tipo === "EGRESADO" && v.planeaTitularse) {
       const pideMotivo =
         v.planeaTitularse === "NO" ||
         v.planeaTitularse === "NO_SABE" ||
         (v.planeaTitularse === "SI" && v.inicioProcesoTitulacion === "NO");
-      if (pideMotivo && !v.motivoNoTitulacion) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["motivoNoTitulacion"],
-          message: "Debe indicar el motivo de no titulación",
-        });
-      }
       if (!pideMotivo && v.motivoNoTitulacion) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -278,22 +264,15 @@ export const personaAdminSchema = personaAdminBase.superRefine((v, ctx) => {
  */
 export const personaAutogestionSchema = z
   .object({
-    correoElectronico: z
-      .string()
-      .trim()
-      .email("Correo inválido")
-      .max(150)
-      .transform((v) => (v === "" ? null : v))
-      .nullable()
-      .optional(),
-    telefono: z
-      .string()
-      .trim()
-      .max(20)
-      .regex(/^[0-9+\-\s()]*$/, "Teléfono inválido")
-      .transform((v) => (v === "" ? null : v))
-      .nullable()
-      .optional(),
+    correoElectronico: correoOpcional.optional(),
+    telefono: z.preprocess(
+      (v) => {
+        if (v === null || v === undefined) return null;
+        const s = String(v).trim();
+        return s === "" ? null : s;
+      },
+      z.string().max(20).regex(/^[0-9+\-\s()]*$/, "Teléfono inválido").nullable().optional()
+    ),
     redesSociales: textoOpcional(300),
     ciudadRegionTrabajo: textoOpcional(200),
     nivelEstudio: enumOpcional(nivelEstudioEnum).optional(),
@@ -303,8 +282,8 @@ export const personaAutogestionSchema = z
     sectorTrabajo: enumOpcional(sectorEnum).optional(),
     sectorTrabajoOtro: textoOpcional(200),
     ocupacionCargo: textoOpcional(200),
-    trabajaEnEstadistica: z.coerce.boolean().optional(),
-    tiempoInsercionLaboralMeses: z.coerce.number().int().min(0).max(600).nullable().optional(),
+    trabajaEnEstadistica: booleano,
+    tiempoInsercionLaboralMeses: enteroOpcional(600).optional(),
     observaciones: textoOpcional(2000),
     // Solo egresados
     planeaTitularse: enumOpcional(planeaEnum).optional(),
@@ -350,33 +329,17 @@ export const personaAutogestionSchema = z
 /**
  * Importación masiva (CSV / Excel).
  *
- * Solo exige los campos que la plantilla marca como obligatorios:
- *   · Titulado:  nombres, cédula, género, semestre ingreso, semestre egreso, año egreso,
- *                año de titulación y modalidad de titulación.
- *   · Egresado:  nombres, cédula, género, semestre ingreso, semestre egreso y año egreso.
- *
- * Todo lo demás es opcional. Si un campo viene con dato, se valida su formato (enum,
- * correo, año…), pero no se exigen las reglas condicionales del alta manual (planea
- * titularse, motivo de no titulación, cursos, etc.): esos datos los responden los propios
- * titulados y egresados, no el archivo que sube el administrador.
+ * Exige únicamente: `tipo`, `nombresApellidos`, `cedulaIdentidad` y `genero` (`MASCULINO` | `FEMENINO`).
+ * Los demás campos pueden venir vacíos (quedan como `null` para su posterior
+ * actualización y el sistema los resalta en la tabla de usuarios).
  */
 export const personaImportacionSchema = personaAdminBase.superRefine((v, ctx) => {
-  const datos = v as Record<string, unknown>;
-  const requeridos: Array<[string, string]> = [
-    ["semestreIngreso", "Falta el semestre de ingreso"],
-    ["semestreEgreso", "Falta el semestre de egreso"],
-    ["anioEgreso", "Falta el año de egreso"],
-  ];
-  if (v.tipo === "TITULADO") {
-    requeridos.push(
-      ["anioTitulacion", "Un titulado debe tener año de titulación"],
-      ["modalidadTitulacion", "Un titulado debe tener modalidad de titulación"]
-    );
-  }
-  for (const [campo, mensaje] of requeridos) {
-    if (datos[campo] === null || datos[campo] === undefined || datos[campo] === "") {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [campo], message: mensaje });
-    }
+  if (v.sectorTrabajo === "OTRO" && !v.sectorTrabajoOtro) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["sectorTrabajoOtro"],
+      message: "Debe especificar cuál es el otro sector",
+    });
   }
 });
 
@@ -432,11 +395,17 @@ export const personaRegistroPublicoSchema = z
       .nullable()
       .optional(),
 
-    semestreIngreso: semestre.nullable().optional(),
-    semestreEgreso: semestre.nullable().optional(),
-    anioEgreso: anio.nullable().optional(),
-    anioTitulacion: anio.nullable().optional(),
-    modalidadTitulacion: enumOpcional(modalidadEnum).optional(),
+    semestreIngreso: semestre.optional(),
+    semestreEgreso: semestre.optional(),
+    anioEgreso: anio.optional(),
+    anioTitulacion: anio.optional(),
+    modalidadTitulacion: z.preprocess(
+      (v) => {
+        if (v === null || v === undefined || String(v).trim() === "") return null;
+        return normalizarModalidad(v);
+      },
+      modalidadEnum.nullable()
+    ).optional(),
     areaEspecializacion: textoOpcional(200),
 
     planeaTitularse: enumOpcional(planeaEnum).optional(),

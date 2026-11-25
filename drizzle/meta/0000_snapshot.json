@@ -1,0 +1,738 @@
+{
+  "id": "0defefb5-bf09-4191-b257-6d9032113d01",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.audit_log": {
+      "name": "audit_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "id_usuario": {
+          "name": "id_usuario",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accion": {
+          "name": "accion",
+          "type": "audit_accion_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entidad": {
+          "name": "entidad",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entidad_id": {
+          "name": "entidad_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "detalles": {
+          "name": "detalles",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "datos_anteriores": {
+          "name": "datos_anteriores",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "datos_nuevos": {
+          "name": "datos_nuevos",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "varchar(45)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_audit_accion": {
+          "name": "idx_audit_accion",
+          "columns": [
+            {
+              "expression": "accion",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_audit_creado_en": {
+          "name": "idx_audit_creado_en",
+          "columns": [
+            {
+              "expression": "creado_en",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "audit_log_id_usuario_usuarios_id_fk": {
+          "name": "audit_log_id_usuario_usuarios_id_fk",
+          "tableFrom": "audit_log",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "id_usuario"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.noticias_cursos": {
+      "name": "noticias_cursos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "titulo": {
+          "name": "titulo",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cuerpo": {
+          "name": "cuerpo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "noticias_tipo_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'noticia_institucional'"
+        },
+        "categoria": {
+          "name": "categoria",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'noticia'"
+        },
+        "fecha": {
+          "name": "fecha",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "imagen_url": {
+          "name": "imagen_url",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "publicado": {
+          "name": "publicado",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_noticias_tipo": {
+          "name": "idx_noticias_tipo",
+          "columns": [
+            {
+              "expression": "tipo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_noticias_fecha": {
+          "name": "idx_noticias_fecha",
+          "columns": [
+            {
+              "expression": "fecha",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.personas": {
+      "name": "personas",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "tipo_estudiante",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'TITULADO'"
+        },
+        "nombres_apellidos": {
+          "name": "nombres_apellidos",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cedula_identidad": {
+          "name": "cedula_identidad",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "genero": {
+          "name": "genero",
+          "type": "genero_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PREFIERO_NO_DECIR'"
+        },
+        "semestre_ingreso": {
+          "name": "semestre_ingreso",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "semestre_egreso": {
+          "name": "semestre_egreso",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anio_egreso": {
+          "name": "anio_egreso",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anio_titulacion": {
+          "name": "anio_titulacion",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "modalidad_titulacion": {
+          "name": "modalidad_titulacion",
+          "type": "modalidad_titulacion_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "area_especializacion": {
+          "name": "area_especializacion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planea_titularse": {
+          "name": "planea_titularse",
+          "type": "planea_titularse_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inicio_proceso_titulacion": {
+          "name": "inicio_proceso_titulacion",
+          "type": "inicio_proceso_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "motivo_no_titulacion": {
+          "name": "motivo_no_titulacion",
+          "type": "motivo_no_titulacion_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "correo_electronico": {
+          "name": "correo_electronico",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "telefono": {
+          "name": "telefono",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "redes_sociales": {
+          "name": "redes_sociales",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ciudad_region_trabajo": {
+          "name": "ciudad_region_trabajo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado_laboral": {
+          "name": "estado_laboral",
+          "type": "estado_laboral_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'DESEMPLEADO'"
+        },
+        "sector_trabajo": {
+          "name": "sector_trabajo",
+          "type": "sector_trabajo_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sector_trabajo_otro": {
+          "name": "sector_trabajo_otro",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ocupacion_cargo": {
+          "name": "ocupacion_cargo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trabaja_en_estadistica": {
+          "name": "trabaja_en_estadistica",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "tiempo_egreso_titulacion_meses": {
+          "name": "tiempo_egreso_titulacion_meses",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tiempo_insercion_laboral_meses": {
+          "name": "tiempo_insercion_laboral_meses",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observaciones": {
+          "name": "observaciones",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "personas_ci_unique_idx": {
+          "name": "personas_ci_unique_idx",
+          "columns": [
+            {
+              "expression": "cedula_identidad",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_personas_tipo": {
+          "name": "idx_personas_tipo",
+          "columns": [
+            {
+              "expression": "tipo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_personas_estado_laboral": {
+          "name": "idx_personas_estado_laboral",
+          "columns": [
+            {
+              "expression": "estado_laboral",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_personas_sector_trabajo": {
+          "name": "idx_personas_sector_trabajo",
+          "columns": [
+            {
+              "expression": "sector_trabajo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_personas_anio_titulacion": {
+          "name": "idx_personas_anio_titulacion",
+          "columns": [
+            {
+              "expression": "anio_titulacion",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_personas_anio_egreso": {
+          "name": "idx_personas_anio_egreso",
+          "columns": [
+            {
+              "expression": "anio_egreso",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_personas_ciudad": {
+          "name": "idx_personas_ciudad",
+          "columns": [
+            {
+              "expression": "ciudad_region_trabajo",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "personas_cedula_identidad_unique": {
+          "name": "personas_cedula_identidad_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "cedula_identidad"
+          ]
+        }
+      }
+    },
+    "public.usuarios": {
+      "name": "usuarios",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ci": {
+          "name": "ci",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nombre": {
+          "name": "nombre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correo": {
+          "name": "correo",
+          "type": "varchar(150)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rol": {
+          "name": "rol",
+          "type": "usuario_rol_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'admin'"
+        },
+        "estado": {
+          "name": "estado",
+          "type": "usuario_estado_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'activo'"
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "usuarios_correo_unique": {
+          "name": "usuarios_correo_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "correo"
+          ]
+        }
+      }
+    }
+  },
+  "enums": {
+    "public.audit_accion_enum": {
+      "name": "audit_accion_enum",
+      "schema": "public",
+      "values": [
+        "crear",
+        "editar",
+        "eliminar",
+        "exportar",
+        "importar"
+      ]
+    },
+    "public.estado_laboral_enum": {
+      "name": "estado_laboral_enum",
+      "schema": "public",
+      "values": [
+        "EMPLEADO",
+        "DESEMPLEADO",
+        "INDEPENDIENTE"
+      ]
+    },
+    "public.genero_enum": {
+      "name": "genero_enum",
+      "schema": "public",
+      "values": [
+        "MASCULINO",
+        "FEMENINO",
+        "PREFIERO_NO_DECIR"
+      ]
+    },
+    "public.inicio_proceso_enum": {
+      "name": "inicio_proceso_enum",
+      "schema": "public",
+      "values": [
+        "SI",
+        "NO"
+      ]
+    },
+    "public.modalidad_titulacion_enum": {
+      "name": "modalidad_titulacion_enum",
+      "schema": "public",
+      "values": [
+        "Tesis",
+        "Proyecto de grado",
+        "Examen de grado",
+        "Trabajo dirigido",
+        "Otro"
+      ]
+    },
+    "public.motivo_no_titulacion_enum": {
+      "name": "motivo_no_titulacion_enum",
+      "schema": "public",
+      "values": [
+        "LABORAL",
+        "ECONOMICO",
+        "PERSONAL",
+        "EN_PROCESO",
+        "OTRO"
+      ]
+    },
+    "public.noticias_tipo_enum": {
+      "name": "noticias_tipo_enum",
+      "schema": "public",
+      "values": [
+        "noticia_institucional",
+        "curso_evento",
+        "noticia_social"
+      ]
+    },
+    "public.planea_titularse_enum": {
+      "name": "planea_titularse_enum",
+      "schema": "public",
+      "values": [
+        "SI",
+        "NO",
+        "NO_SABE"
+      ]
+    },
+    "public.sector_trabajo_enum": {
+      "name": "sector_trabajo_enum",
+      "schema": "public",
+      "values": [
+        "PUBLICO",
+        "PRIVADO",
+        "ACADEMICO",
+        "ONG",
+        "OTRO"
+      ]
+    },
+    "public.tipo_estudiante": {
+      "name": "tipo_estudiante",
+      "schema": "public",
+      "values": [
+        "TITULADO",
+        "EGRESADO"
+      ]
+    },
+    "public.usuario_estado_enum": {
+      "name": "usuario_estado_enum",
+      "schema": "public",
+      "values": [
+        "activo",
+        "inactivo",
+        "bloqueado"
+      ]
+    },
+    "public.usuario_rol_enum": {
+      "name": "usuario_rol_enum",
+      "schema": "public",
+      "values": [
+        "admin",
+        "usuario"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -181,6 +181,13 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       );
     }
 
+    if (!motivo || motivo.length < 3) {
+      return NextResponse.json(
+        { error: "Debe indicar el motivo de la baja (mínimo 3 caracteres)" },
+        { status: 400 }
+      );
+    }
+
     const definitivo = sp.get("definitivo") === "1";
 
     // Para proteger la evidencia de acreditación, el borrado físico exige que el

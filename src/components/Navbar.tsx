@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sun, Moon, LogOut, LogIn, Menu, X } from "lucide-react";
+import { Sun, Moon, LogOut, LogIn, Menu, X, PlayCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useCierreSesion } from "@/lib/useCierreSesion";
 
@@ -12,6 +12,7 @@ export default function Navbar() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [palette, setPalette] = useState<Palette>("dis1");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [tutorialKardexAbierto, setTutorialKardexAbierto] = useState(false);
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [salidaAbierta, setSalidaAbierta] = useState(false);
@@ -21,6 +22,15 @@ export default function Navbar() {
   const isTitulados = pathname === "/titulados" || pathname.startsWith("/titulados") || pathname.startsWith("/kpis/");
   // Páginas donde se muestra el botón home secundario hacia el inicio del seguimiento
   const isSeguimientoSub = pathname === "/titulados" || pathname === "/login" || pathname === "/admin/dashboard" || pathname.startsWith("/portal/") || pathname.startsWith("/kpis/") || pathname.startsWith("/noticias/") || pathname.startsWith("/kardex/");
+
+  useEffect(() => {
+    if (!tutorialKardexAbierto) return;
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setTutorialKardexAbierto(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [tutorialKardexAbierto]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
@@ -172,6 +182,19 @@ export default function Navbar() {
                 </li>
               )
             )}
+            {user?.rol === "KARDEX" && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setTutorialKardexAbierto(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-2 text-sm xl:text-[15px] font-semibold tracking-wide rounded-lg text-teal-200 hover:text-white hover:bg-white/15 transition whitespace-nowrap"
+                  title="Ver guía en video del rol Kardex"
+                >
+                  <PlayCircle className="w-4 h-4 shrink-0" />
+                  Tutorial
+                </button>
+              </li>
+            )}
           </ul>
 
           <div className="flex items-center gap-1.5 shrink-0 justify-end min-w-0">
@@ -231,6 +254,21 @@ export default function Navbar() {
                 </li>
               )
             )}
+            {user?.rol === "KARDEX" && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setTutorialKardexAbierto(true);
+                  }}
+                  className="w-full text-left flex items-center gap-2 px-3 py-3 rounded-xl text-[17px] font-semibold text-teal-200 hover:bg-white/10 transition"
+                >
+                  <PlayCircle className="w-5 h-5 shrink-0" />
+                  Tutorial Kardex
+                </button>
+              </li>
+            )}
             {/* Con sesión activa tampoco hay salida en el menú desplegable. */}
             {isSeguimientoSub && !user && (
               <li>
@@ -261,6 +299,50 @@ export default function Navbar() {
               >
                 {saliendo ? "Cerrando…" : "Sí, cerrar sesión"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {tutorialKardexAbierto && user?.rol === "KARDEX" && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="titulo-tutorial-kardex"
+          onClick={() => setTutorialKardexAbierto(false)}
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+        >
+          <div
+            onClick={(ev) => ev.stopPropagation()}
+            className="w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <PlayCircle className="h-5 w-5 text-teal-700 dark:text-teal-400" />
+                <h2
+                  id="titulo-tutorial-kardex"
+                  className="text-sm font-bold text-slate-900 dark:text-white"
+                >
+                  Guía operativa del rol Kardex
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTutorialKardexAbierto(false)}
+                aria-label="Cerrar guía"
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="bg-black p-2 sm:p-3">
+              <video
+                src="/videos/tutorial-kardex.mp4"
+                controls
+                autoPlay
+                playsInline
+                preload="metadata"
+                className="aspect-video w-full rounded-lg bg-black"
+              />
             </div>
           </div>
         </div>

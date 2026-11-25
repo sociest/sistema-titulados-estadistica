@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exigirAdmin, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
+import { exigirAdminOKardex, errorInterno, leerSesionVigente, verificarCsrf } from "@/lib/guards";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { firmarDescarga } from "@/lib/descargas";
 import { enlaceDescargaSchema, primerErrorZod } from "@/lib/validaciones";
@@ -30,7 +30,7 @@ const DESTINOS = {
 type Destino = keyof typeof DESTINOS;
 
 export async function POST(req: NextRequest) {
-  const denegado = await exigirAdmin(req);
+  const denegado = await exigirAdminOKardex(req);
   if (denegado) return denegado;
 
   const denegadoCsrf = await verificarCsrf(req);
@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
     const destino = body.destino as Destino;
     if (!(destino in DESTINOS)) {
       return NextResponse.json({ error: "Destino de descarga no válido" }, { status: 400 });
+    }
+    if (destino === "pdf" && sesion.rol !== "admin") {
+      return NextResponse.json({ error: "Requiere permisos de administrador" }, { status: 403 });
     }
     const cfg = DESTINOS[destino];
 
